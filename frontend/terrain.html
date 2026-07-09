@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Mission Copilot - Terrain View (Week 2)</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #05070a; overflow: hidden; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
+  #canvas-container { width: 100vw; height: 100vh; }
+  #hud {
+    position: fixed; top: 16px; left: 16px; z-index: 10;
+    background: rgba(10,14,20,0.85); border: 1px solid #1f2a37; border-radius: 10px;
+    padding: 14px 16px; color: #e6edf3; font-size: 13px; min-width: 260px;
+    backdrop-filter: blur(6px);
+  }
+  #hud h1 { font-size: 15px; margin: 0 0 8px 0; }
+  #hud .row { display: flex; justify-content: space-between; margin: 4px 0; color: #b7c2cd; }
+  #hud .row b { color: #e6edf3; font-weight: 600; }
+  #hud .hint { margin-top: 10px; color: #6b7785; font-size: 12px; line-height: 1.4; }
+  #status-dot {
+    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+    background: #ff5d5d; margin-right: 6px;
+  }
+  #status-dot.connected { background: #33d17a; }
+  button {
+    background: #1a2432; color: #e6edf3; border: 1px solid #1f2a37;
+    padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; margin-top: 8px;
+  }
+  button:hover { border-color: #4da3ff; }
+</style>
+</head>
+<body>
+
+<div id="hud">
+  <h1>🛰 Mission Copilot — Terrain View</h1>
+  <div><span id="status-dot"></span><span id="status-text">Connecting...</span></div>
+  <div class="row"><span>Grid position</span><b id="hud-pos">--</b></div>
+  <div class="row"><span>Tilt (real DEM slope)</span><b id="hud-tilt">--</b></div>
+  <div class="row"><span>Path progress</span><b id="hud-progress">--</b></div>
+  <div class="row"><span>DEM source</span><b id="hud-dem">--</b></div>
+  <button id="clear-path-btn">Clear path</button>
+  <div class="hint">Click any point on the terrain to set a new goal.<br/>The rover paths there automatically, avoiding terrain too steep to climb.</div>
+</div>
+
+<div id="canvas-container"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+const BACKEND_HTTP = "http://localhost:8000";
+const BACKEND_WS = "ws://localhost:8000/ws/telemetry";
+const TERRAIN_SIZE = 60;      // world-space size of the terrain plane
+const HEIGHT_SCALE = 8;       // vertical exaggeration so slopes are visible
+
+let gridSize = 128;
+let heightmapFlat = [];       // flat array, row-major
+let terrainMesh, roverMesh, pathLine;
+let currentGridPos = [0, 0];
+
+// ---------- Scene setup ----------
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x05070a);
+scene.fog = new THREE.Fog(0x05070a, 40, 120);
+
+const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 500);
+camera.position.set(0, 35, 45);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.getElementById("canvas-container").appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI * 0.49;
+
+const ambient = new THREE.AmbientLight(0x445566, 1.2);
+scene.add(ambient);
+const sun = new THREE.DirectionalLight(0xfff2e0, 1.4);
+sun.position.set(40, 60, 20);
+scene.add(sun);
+
+window.addEventListener("resize", () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ---------- Load real DEM terrain from backend ----------
+async function loadTerrain() {
+  const res = await fetch(`${BACKEND_HTTP}/api/terrain`);
+  const data = await res.json();
+  gridSize = data.grid_size;
+  heightmapFlat = data.heightmap.flat(); // normalized 0-1
+
+  document.getElementById("hud-dem").textContent =
+    `${data.elevation_min_m.toFixed(0)}m to ${data.elevation_max_m.toFixed(0)}m`;
+
+  const geometry = new THREE.PlaneGeometry(
+    TERRAIN_SIZE, TERRAIN_SIZE, gridSize - 1, gridSize - 1
+  );
+  geometry.rotateX(-Math.PI / 2); // lay flat, Y becomes "up"
+
+  const pos = geometry.attributes.position;
+  for (let i = 0; i < pos.count; i++) {
+    const h = heightmapFlat[i] ?? 0;
+    pos.setY(i, h * HEIGHT_SCALE);
+  }
+  geometry.computeVertexNormals();
+
+  const material = new THREE.MeshStandardMaterial({
+    color: 0x8a8378,
+    flatShading: false,
+    roughness: 1,
+    metalness: 0,
+    wireframe: false,
+  });
+
+  if (terrainMesh) scene.remove(terrainMesh);
+  terrainMesh = new THREE.Mesh(geometry, material);
+  terrainMesh.name = "terrain";
+  scene.add(terrainMesh);
+
+  // simple grid helper for scale reference
+  const grid = new THREE.GridHelper(TERRAIN_SIZE, 20, 0x223344, 0x152030);
+  grid.position.y = -0.01;
+  scene.add(grid);
+}
+
+// ---------- Rover marker ----------
+function createRover() {
+  const geo = new THREE.ConeGeometry(0.6, 1.4, 4);
+  const mat = new THREE.MeshStandardMaterial({ color: 0x4da3ff, emissive: 0x1a3a5c });
+  roverMesh = new THREE.Mesh(geo, mat);
+  scene.add(roverMesh);
+}
+
+// Convert grid (row, col) -> world (x, z), matching the plane's layout
+function gridToWorld(row, col) {
+  const half = TERRAIN_SIZE / 2;
+  const x = (col / (gridSize - 1)) * TERRAIN_SIZE - half;
+  const z = (row / (gridSize - 1)) * TERRAIN_SIZE - half;
+  const idx = row * gridSize + col;
+  const h = (heightmapFlat[idx] ?? 0) * HEIGHT_SCALE;
+  return new THREE.Vector3(x, h + 0.7, z);
+}
+
+function updateRoverPosition(row, col) {
+  currentGridPos = [row, col];
+  if (!roverMesh) return;
+  const worldPos = gridToWorld(row, col);
+  roverMesh.position.copy(worldPos);
+}
+
+// ---------- Path visualization ----------
+function drawPath(pathCells) {
+  if (pathLine) scene.remove(pathLine);
+  const points = pathCells.map(([r, c]) => {
+    const p = gridToWorld(r, c);
+    p.y += 0.15;
+    return p;
+  });
+  const geometry = new THREE.BufferGeometry().setFromPoints(points);
+  const material = new THREE.LineBasicMaterial({ color: 0x33d17a, linewidth: 2 });
+  pathLine = new THREE.Line(geometry, material);
+  scene.add(pathLine);
+}
+
+// ---------- Click-to-set-goal ----------
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+renderer.domElement.addEventListener("dblclick", async (event) => {
+  mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+
+  if (!terrainMesh) return;
+  const hits = raycaster.intersectObject(terrainMesh);
+  if (hits.length === 0) return;
+
+  const point = hits[0].point;
+  const half = TERRAIN_SIZE / 2;
+  const col = Math.round(((point.x + half) / TERRAIN_SIZE) * (gridSize - 1));
+  const row = Math.round(((point.z + half) / TERRAIN_SIZE) * (gridSize - 1));
+
+  await requestPath(currentGridPos[0], currentGridPos[1], row, col);
+});
+
+document.getElementById("clear-path-btn").addEventListener("click", () => {
+  if (pathLine) { scene.remove(pathLine); pathLine = null; }
+});
+
+async function requestPath(startRow, startCol, goalRow, goalCol) {
+  try {
+    const res = await fetch(`${BACKEND_HTTP}/api/path`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        start_row: startRow, start_col: startCol,
+        goal_row: goalRow, goal_col: goalCol,
+      }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      console.warn("Path request failed:", err.detail);
+      return;
+    }
+    const data = await res.json();
+    drawPath(data.path);
+  } catch (e) {
+    console.error("Path request error:", e);
+  }
+}
+
+// ---------- WebSocket telemetry (drives rover animation) ----------
+function connectTelemetry() {
+  const ws = new WebSocket(BACKEND_WS);
+
+  ws.onopen = () => {
+    document.getElementById("status-dot").classList.add("connected");
+    document.getElementById("status-text").textContent = "Live telemetry connected";
+  };
+
+  ws.onclose = () => {
+    document.getElementById("status-dot").classList.remove("connected");
+    document.getElementById("status-text").textContent = "Disconnected — retrying...";
+    setTimeout(connectTelemetry, 2000);
+  };
+
+  ws.onerror = () => ws.close();
+
+  ws.onmessage = (event) => {
+    const d = JSON.parse(event.data);
+    if (d.grid_pos) {
+      updateRoverPosition(d.grid_pos[0], d.grid_pos[1]);
+      document.getElementById("hud-pos").textContent = `[${d.grid_pos[0]}, ${d.grid_pos[1]}]`;
+    }
+    document.getElementById("hud-tilt").textContent = `${d.tilt_deg}°`;
+    if (d.path_progress) {
+      document.getElementById("hud-progress").textContent =
+        `${d.path_progress.index} / ${d.path_progress.total}`;
+    }
+  };
+}
+
+// ---------- Render loop ----------
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+}
+
+// ---------- Boot ----------
+(async function init() {
+  await loadTerrain();
+  createRover();
+  connectTelemetry();
+  animate();
+})();
+</script>
+</body>
+</html>

@@ -1,13 +1,246 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Mission Copilot — Telemetry Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+
+  :root {
+    --bg: #0b0f19;
+    --panel: #151b2b;
+    --border: #1e293b;
+    --text: #f1f5f9;
+    --muted: #94a3b8;
+    --accent: #3b82f6;
+    --danger: #ef4444;
+    --warning: #f59e0b;
+    --success: #10b981;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .container { max-width: 1400px; margin: 0 auto; padding: 2rem; }
+
+  header {
+    display: flex; justify-content: space-between; align-items: center;
+    border-bottom: 1px solid var(--border); padding-bottom: 1rem; margin-bottom: 2rem;
+  }
+
+  h1 { font-size: 1.8rem; font-weight: 700; letter-spacing: -0.025em; }
+
+  .status {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    font-size: 0.875rem; color: var(--muted);
+    background: var(--panel); padding: 0.5rem 1rem; border-radius: 20px;
+    border: 1px solid var(--border);
+  }
+
+  .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--danger); box-shadow: 0 0 8px rgba(239,68,68,0.4);
+  }
+  .dot.ok { background: var(--success); box-shadow: 0 0 8px rgba(16,185,129,0.5); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; }
+  .full { grid-column: 1 / -1; }
+
+  .panel {
+    background: var(--panel); border-radius: 12px; border: 1px solid var(--border);
+    padding: 1.5rem; transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .panel:hover { transform: translateY(-2px); box-shadow: 0 10px 15px rgba(0,0,0,0.1); }
+
+  .panel-hdr { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+  .panel-title { font-size: 1.1rem; font-weight: 600; color: var(--muted); }
+  .panel-val { font-size: 1.5rem; font-weight: 700; }
+
+  .chart-wrap { height: 250px; position: relative; }
+
+  .btns { display: flex; flex-wrap: wrap; gap: 1rem; }
+  .btn {
+    background: transparent; color: var(--text); border: 1px solid var(--border);
+    padding: 0.75rem 1.25rem; border-radius: 8px; font-size: 0.875rem;
+    font-weight: 600; cursor: pointer; transition: all 0.2s;
+  }
+  .btn:hover { background: var(--border); }
+  .btn-d { border-color: var(--danger); color: var(--danger); }
+  .btn-d:hover { background: var(--danger); color: #fff; box-shadow: 0 0 12px rgba(239,68,68,0.4); }
+  .btn-w { border-color: var(--warning); color: var(--warning); }
+  .btn-w:hover { background: var(--warning); color: #fff; }
+  .btn-a { border-color: var(--accent); color: var(--accent); }
+  .btn-a:hover { background: var(--accent); color: #fff; }
+
+  .fault-banner {
+    background: rgba(239,68,68,0.1); border: 1px solid var(--danger); color: var(--danger);
+    padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; font-weight: 600;
+    animation: pulse 2s infinite; display: none;
+  }
+  .fault-banner.show { display: block; }
+
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(239,68,68,0.4); }
+    70% { box-shadow: 0 0 0 6px rgba(239,68,68,0); }
+    100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+  }
+
+  .nav-link {
+    display: inline-block; margin-top: 1rem; color: var(--accent);
+    text-decoration: none; font-size: 0.9rem;
+  }
+  .nav-link:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>🛰 Mission Copilot Telemetry</h1>
+    <div class="status"><div class="dot" id="dot"></div><span id="conn-text">Connecting…</span></div>
+  </header>
+
+  <div class="fault-banner" id="fault-banner">⚠ Active anomaly detected in telemetry stream</div>
+
+  <div class="grid">
+    <!-- Controls -->
+    <div class="panel full">
+      <div class="panel-hdr"><h2 class="panel-title">Fault Injection Demo Controls</h2></div>
+      <div class="btns">
+        <button class="btn btn-w" onclick="inject('motor_temp_spike','front_left',2)">🌡 Spike Motor Temp</button>
+        <button class="btn btn-d" onclick="inject('battery_drain','general',1.5)">🔋 Battery Drain</button>
+        <button class="btn btn-w" onclick="inject('comms_dropout','general',2)">📡 Comms Dropout</button>
+        <button class="btn btn-a" onclick="inject('tilt_spike','general',1.5)">⛰ Tilt Spike</button>
+      </div>
+      <a href="terrain.html" class="nav-link">→ Open 3D Terrain View (Week 2)</a>
+    </div>
+
+    <!-- Battery -->
+    <div class="panel">
+      <div class="panel-hdr"><h2 class="panel-title">🔋 Battery Level</h2><div class="panel-val" id="v-bat">--%</div></div>
+      <div class="chart-wrap"><canvas id="c-bat"></canvas></div>
+    </div>
+
+    <!-- Motors -->
+    <div class="panel">
+      <div class="panel-hdr"><h2 class="panel-title">🌡 Motor Temperatures</h2></div>
+      <div class="chart-wrap"><canvas id="c-mot"></canvas></div>
+    </div>
+
+    <!-- Comms -->
+    <div class="panel">
+      <div class="panel-hdr"><h2 class="panel-title">📡 Comms Signal</h2><div class="panel-val" id="v-com">--%</div></div>
+      <div class="chart-wrap"><canvas id="c-com"></canvas></div>
+    </div>
+
+    <!-- Tilt -->
+    <div class="panel">
+      <div class="panel-hdr"><h2 class="panel-title">⛰ Tilt (Pitch/Roll)</h2><div class="panel-val" id="v-tlt">--°</div></div>
+      <div class="chart-wrap"><canvas id="c-tlt"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const BACKEND = 'http://localhost:8000';
+const MAX_POINTS = 60;
+
+// --- Charts ---
+const chartOpts = (min, max) => ({
+  responsive: true, maintainAspectRatio: false, animation: false,
+  scales: {
+    x: { display: false },
+    y: { min, max, ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' } },
+  },
+  plugins: { legend: { labels: { color: '#94a3b8', boxWidth: 12 } } },
+});
+
+const mkDS = (label, color) => ({ label, data: [], borderColor: color, borderWidth: 2, pointRadius: 0, tension: 0.3 });
+
+const batChart = new Chart(document.getElementById('c-bat'), {
+  type: 'line', data: { labels: [], datasets: [mkDS('Battery %', '#10b981')] }, options: chartOpts(0, 100),
+});
+const motChart = new Chart(document.getElementById('c-mot'), {
+  type: 'line', data: { labels: [], datasets: [
+    mkDS('FL', '#ef4444'), mkDS('FR', '#f97316'), mkDS('RL', '#eab308'), mkDS('RR', '#3b82f6'),
+  ]}, options: chartOpts(20, 80),
+});
+const comChart = new Chart(document.getElementById('c-com'), {
+  type: 'line', data: { labels: [], datasets: [mkDS('Signal', '#3b82f6')] }, options: chartOpts(0, 100),
+});
+const tltChart = new Chart(document.getElementById('c-tlt'), {
+  type: 'line', data: { labels: [], datasets: [mkDS('Tilt °', '#a855f7')] }, options: chartOpts(-45, 45),
+});
+
+// --- WebSocket ---
+function connect() {
+  const ws = new WebSocket('ws://localhost:8000/ws/telemetry');
+
+  ws.onopen = () => {
+    document.getElementById('dot').classList.add('ok');
+    document.getElementById('conn-text').textContent = 'Live Stream Active';
+  };
+
+  ws.onclose = () => {
+    document.getElementById('dot').classList.remove('ok');
+    document.getElementById('conn-text').textContent = 'Reconnecting…';
+    setTimeout(connect, 3000);
+  };
+
+  ws.onmessage = (ev) => {
+    const d = JSON.parse(ev.data);
+    const tick = d.tick;
+
+    // Push data
+    push(batChart, tick, [d.battery_pct]);
+    push(motChart, tick, [
+      d.motor_temp.front_left, d.motor_temp.front_right,
+      d.motor_temp.rear_left, d.motor_temp.rear_right,
+    ]);
+    push(comChart, tick, [d.comms_signal]);
+    push(tltChart, tick, [d.tilt_deg]);
+
+    // Update values
+    document.getElementById('v-bat').textContent = d.battery_pct.toFixed(1) + '%';
+    document.getElementById('v-com').textContent = d.comms_signal.toFixed(1) + '%';
+    document.getElementById('v-tlt').textContent = d.tilt_deg.toFixed(1) + '°';
+
+    // Fault banner
+    const banner = document.getElementById('fault-banner');
+    if (d.active_fault_count > 0) banner.classList.add('show');
+    else banner.classList.remove('show');
+  };
+}
+
+function push(chart, label, values) {
+  chart.data.labels.push(label);
+  values.forEach((v, i) => chart.data.datasets[i].data.push(v));
+  if (chart.data.labels.length > MAX_POINTS) {
+    chart.data.labels.shift();
+    chart.data.datasets.forEach(ds => ds.data.shift());
+  }
+  chart.update();
+}
+
+// --- Fault Injection ---
+async function inject(type, target, mag) {
+  try {
+    await fetch(`${BACKEND}/api/inject_fault`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fault_type: type, target, magnitude: mag, duration_ticks: 20 }),
+    });
+  } catch (e) { console.error('Inject failed:', e); }
+}
+
+connect();
+</script>
+</body>
 </html>

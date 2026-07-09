@@ -1,22 +1,22 @@
-version: '3.8'
-
 services:
   backend:
     build: ./backend
     ports:
       - "8000:8000"
     volumes:
-      - ./backend:/app
+      # Drop your real DEM GeoTIFF here as ./data/dem.tif on the host.
+      # If the file isn't present, the backend automatically falls back
+      # to the bundled synthetic test DEM so the service still boots.
+      - ./data:/app/data:ro
     environment:
-      - PYTHONUNBUFFERED=1
+      - DEM_PATH=/app/data/dem.tif
+      - GRID_SIZE=128
+    restart: unless-stopped
 
   frontend:
     build: ./frontend
     ports:
-      - "5173:5173"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    environment:
-      - CHOKIDAR_USEPOLLING=true
-      - VITE_BACKEND_URL=http://localhost:8000
+      - "8080:80"
+    depends_on:
+      - backend
+    restart: unless-stopped

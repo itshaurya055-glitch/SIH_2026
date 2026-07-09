@@ -6,3 +6,5 @@ venv/
 node_modules/
 dist/
 .DS_Store
+data/dem.tif
+backend/test_data/

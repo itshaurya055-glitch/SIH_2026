@@ -20,11 +20,17 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from collections import deque
 from telemetry import RoverTelemetry
 from dem_processor import DEMProcessor
 from pathfinding import astar_path
+from anomaly_detector import AnomalyDetector
 
 app = FastAPI(title="Mission Copilot - Telemetry Service")
+
+detector = AnomalyDetector()
+recent_alerts = deque(maxlen=50)
+
 
 # Path to the DEM file. In Docker this is mounted from ./data on the host.
 # Falls back to the synthetic test DEM if no real file is present, so the
@@ -119,6 +125,11 @@ async def inject_fault(req: FaultRequest):
     return {"ok": True, "message": f"Injected {req.fault_type} on {req.target}"}
 
 
+@app.get("/api/alerts")
+async def get_alerts():
+    return list(recent_alerts)
+
+
 def _advance_along_path():
     """Move the rover one step along its active A* path (if any), and set
     its tilt telemetry to the REAL slope at that grid cell from the DEM -
@@ -148,6 +159,15 @@ async def telemetry_stream(websocket: WebSocket):
                 "index": rover.path_index,
                 "total": len(rover.active_path),
             }
+            
+            # Check for anomalies using the trained model
+            alerts = detector.check(reading)
+            reading["alerts"] = alerts
+            
+            # Store in backend history
+            for alert in alerts:
+                recent_alerts.appendleft(alert)
+                
             await websocket.send_text(json.dumps(reading))
             await asyncio.sleep(1.0)  # 1 reading per second
     except WebSocketDisconnect:

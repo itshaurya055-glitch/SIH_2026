@@ -31,6 +31,13 @@ def main():
     print(f"Loading {path} ...")
     dem = DEMProcessor(path, grid_size=128)
 
+    print(f"CRS: {dem._source_crs}")
+    print(f"Bounds: {dem._source_bounds}")
+    print(f"Real-world size per grid cell: {dem.pixel_size_x_m:.1f}m x {dem.pixel_size_y_m:.1f}m")
+    approx_width_km = (dem.pixel_size_x_m * dem.grid_size) / 1000
+    approx_height_km = (dem.pixel_size_y_m * dem.grid_size) / 1000
+    print(f"Approx real-world coverage: {approx_width_km:.1f}km x {approx_height_km:.1f}km")
+
     print(f"Grid size: {dem.grid_size}x{dem.grid_size}")
     print(f"Elevation range: {dem.elevation.min():.1f}m to {dem.elevation.max():.1f}m")
     print(f"Slope range: {dem.slope_deg.min():.1f}° to {dem.slope_deg.max():.1f}°")
@@ -41,9 +48,16 @@ def main():
     print(f"Blocked cells (too steep to traverse): {blocked}/{total} ({100*blocked/total:.1f}%)")
 
     if blocked == total:
-        print("\nWARNING: entire grid is blocked - your DEM may be too extreme "
-              "or the slope threshold too strict. Check dem_processor.py's "
-              "max_traversable_slope.")
+        print("\nWARNING: entire grid is blocked.")
+        if approx_width_km > 200:
+            print(f"Likely cause: this file covers ~{approx_width_km:.0f}km x {approx_height_km:.0f}km, "
+                  "which is far too large an area for a rover-scale demo (you want more like "
+                  "10-50km across). Go back to Map a Planet and set a tighter lat/lon bounding "
+                  "box before re-downloading.")
+        else:
+            print("The clipped area itself may genuinely be extreme terrain (e.g. a crater wall "
+                  "or mountain range). Try a different region, or loosen max_traversable_slope "
+                  "in dem_processor.py's _compute_cost_grid().")
     else:
         print("\nLooks good. Copy this file to ./data/dem.tif and run docker compose up.")
 

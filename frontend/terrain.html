@@ -135,11 +135,160 @@ async function loadTerrain() {
   scene.add(grid);
 }
 
-// ---------- Rover marker ----------
+// ---------- Lunar Rover Model ----------
 function createRover() {
-  const geo = new THREE.ConeGeometry(0.6, 1.4, 4);
-  const mat = new THREE.MeshStandardMaterial({ color: 0x4da3ff, emissive: 0x1a3a5c });
-  roverMesh = new THREE.Mesh(geo, mat);
+  roverMesh = new THREE.Group();
+
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0xd4cfc8, roughness: 0.6, metalness: 0.3 });
+  const metalMat = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.3, metalness: 0.8 });
+  const darkMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.8, metalness: 0.2 });
+  const goldMat = new THREE.MeshStandardMaterial({ color: 0xc9a84c, roughness: 0.4, metalness: 0.7 });
+  const panelMat = new THREE.MeshStandardMaterial({ color: 0x1a2744, roughness: 0.2, metalness: 0.5 });
+  const lensMat = new THREE.MeshStandardMaterial({ color: 0x112244, roughness: 0.1, metalness: 0.9, emissive: 0x0a1530 });
+
+  // === Main chassis (boxy body with slight taper) ===
+  const chassis = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.35, 0.7), bodyMat);
+  chassis.position.y = 0.45;
+  roverMesh.add(chassis);
+
+  // Gold foil thermal blanket on top
+  const foil = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.04, 0.6), goldMat);
+  foil.position.set(0, 0.645, 0);
+  roverMesh.add(foil);
+
+  // === Rocker-bogie suspension arms + 6 wheels ===
+  const wheelGeo = new THREE.CylinderGeometry(0.15, 0.15, 0.08, 16);
+  const tireGeo = new THREE.TorusGeometry(0.15, 0.04, 8, 16);
+
+  function makeWheel(x, y, z) {
+    const wheelGroup = new THREE.Group();
+
+    // Hub
+    const hub = new THREE.Mesh(wheelGeo, metalMat);
+    hub.rotation.x = Math.PI / 2;
+    wheelGroup.add(hub);
+
+    // Tire tread
+    const tire = new THREE.Mesh(tireGeo, darkMat);
+    tire.rotation.x = Math.PI / 2;
+    wheelGroup.add(tire);
+
+    // Spoke detail
+    for (let i = 0; i < 6; i++) {
+      const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.02, 0.015), metalMat);
+      spoke.rotation.z = (i / 6) * Math.PI;
+      wheelGroup.add(spoke);
+    }
+
+    wheelGroup.position.set(x, y, z);
+    return wheelGroup;
+  }
+
+  // Suspension arms (thin bars connecting body to wheels)
+  function makeArm(x1, y1, z1, x2, y2, z2) {
+    const len = Math.sqrt((x2-x1)**2 + (y2-y1)**2 + (z2-z1)**2);
+    const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, len, 6), metalMat);
+    arm.position.set((x1+x2)/2, (y1+y2)/2, (z1+z2)/2);
+    arm.lookAt(x2, y2, z2);
+    arm.rotateX(Math.PI / 2);
+    return arm;
+  }
+
+  const wheelY = 0.15;
+  const innerZ = 0.35;
+  const outerZ = 0.45;
+
+  // Front wheels
+  roverMesh.add(makeWheel(-0.5, wheelY, outerZ));
+  roverMesh.add(makeWheel(-0.5, wheelY, -outerZ));
+  // Middle wheels
+  roverMesh.add(makeWheel(0, wheelY, outerZ));
+  roverMesh.add(makeWheel(0, wheelY, -outerZ));
+  // Rear wheels
+  roverMesh.add(makeWheel(0.5, wheelY, outerZ));
+  roverMesh.add(makeWheel(0.5, wheelY, -outerZ));
+
+  // Suspension arms (rocker bars)
+  [-1, 1].forEach(side => {
+    const z = side * innerZ;
+    roverMesh.add(makeArm(-0.35, 0.4, z, -0.5, wheelY, z));
+    roverMesh.add(makeArm(-0.35, 0.4, z, 0, wheelY, z));
+    roverMesh.add(makeArm(0.1, 0.4, z, 0, wheelY, z));
+    roverMesh.add(makeArm(0.1, 0.4, z, 0.5, wheelY, z));
+  });
+
+  // === Solar panel (angled, on top-rear) ===
+  const panel = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.03, 0.9), panelMat);
+  panel.position.set(-0.15, 0.85, 0);
+  panel.rotation.z = 0.15; // slight tilt toward sun
+  roverMesh.add(panel);
+
+  // Panel grid lines
+  for (let i = -3; i <= 3; i++) {
+    const line = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.035, 0.005), new THREE.MeshStandardMaterial({ color: 0x2a3d5c }));
+    line.position.set(-0.15, 0.855, i * 0.12);
+    line.rotation.z = 0.15;
+    roverMesh.add(line);
+  }
+
+  // Panel support strut
+  const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.2, 6), metalMat);
+  strut.position.set(-0.15, 0.73, 0);
+  roverMesh.add(strut);
+
+  // === Camera mast (tall vertical pole + camera head) ===
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.025, 0.6, 8), metalMat);
+  mast.position.set(0.35, 0.95, 0);
+  roverMesh.add(mast);
+
+  // Camera head (two lenses = stereo cameras)
+  const camHead = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.08, 0.12), bodyMat);
+  camHead.position.set(0.35, 1.28, 0);
+  roverMesh.add(camHead);
+
+  // Stereo camera lenses
+  const lensGeo = new THREE.CylinderGeometry(0.025, 0.03, 0.04, 12);
+  const lens1 = new THREE.Mesh(lensGeo, lensMat);
+  lens1.rotation.z = Math.PI / 2;
+  lens1.position.set(0.44, 1.28, 0.03);
+  roverMesh.add(lens1);
+  const lens2 = new THREE.Mesh(lensGeo, lensMat);
+  lens2.rotation.z = Math.PI / 2;
+  lens2.position.set(0.44, 1.28, -0.03);
+  roverMesh.add(lens2);
+
+  // === Antenna dish (high-gain, rear) ===
+  // Approximate a small dish with a lathe geometry
+  const dishPts = [];
+  for (let i = 0; i <= 10; i++) {
+    const t = i / 10;
+    dishPts.push(new THREE.Vector2(t * 0.15, t * t * 0.04));
+  }
+  const dishGeo = new THREE.LatheGeometry(dishPts, 16);
+  const dish = new THREE.Mesh(dishGeo, metalMat);
+  dish.position.set(-0.45, 0.9, 0.2);
+  dish.rotation.z = -0.4;
+  dish.rotation.x = -0.3;
+  roverMesh.add(dish);
+
+  // Antenna feed (tiny cylinder in front of dish)
+  const feed = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.12, 6), metalMat);
+  feed.position.set(-0.48, 0.98, 0.22);
+  feed.rotation.z = -0.4;
+  roverMesh.add(feed);
+
+  // === Headlight indicators (subtle glow) ===
+  const lightMat = new THREE.MeshStandardMaterial({ color: 0x88ccff, emissive: 0x4488cc, emissiveIntensity: 2 });
+  const lightGeo = new THREE.SphereGeometry(0.02, 8, 8);
+  const light1 = new THREE.Mesh(lightGeo, lightMat);
+  light1.position.set(0.52, 0.5, 0.2);
+  roverMesh.add(light1);
+  const light2 = new THREE.Mesh(lightGeo, lightMat);
+  light2.position.set(0.52, 0.5, -0.2);
+  roverMesh.add(light2);
+
+  // Scale the whole rover to fit the scene
+  roverMesh.scale.set(1.2, 1.2, 1.2);
   scene.add(roverMesh);
 }
 
@@ -150,7 +299,7 @@ function gridToWorld(row, col) {
   const z = (row / (gridSize - 1)) * TERRAIN_SIZE - half;
   const idx = row * gridSize + col;
   const h = (heightmapFlat[idx] ?? 0) * HEIGHT_SCALE;
-  return new THREE.Vector3(x, h + 0.7, z);
+  return new THREE.Vector3(x, h + 0.2, z);
 }
 
 function updateRoverPosition(row, col) {
@@ -177,8 +326,16 @@ function drawPath(pathCells) {
 // ---------- Click-to-set-goal ----------
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
+let goalMarker = null;
+let isDragging = false;
 
-renderer.domElement.addEventListener("dblclick", async (event) => {
+// Track drag so we don't fire path requests when orbiting the camera
+renderer.domElement.addEventListener("pointerdown", () => { isDragging = false; });
+renderer.domElement.addEventListener("pointermove", () => { isDragging = true; });
+
+renderer.domElement.addEventListener("pointerup", async (event) => {
+  if (isDragging) return; // was a camera orbit, not a click
+
   mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
   mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
   raycaster.setFromCamera(mouse, camera);
@@ -192,11 +349,23 @@ renderer.domElement.addEventListener("dblclick", async (event) => {
   const col = Math.round(((point.x + half) / TERRAIN_SIZE) * (gridSize - 1));
   const row = Math.round(((point.z + half) / TERRAIN_SIZE) * (gridSize - 1));
 
+  // Show goal marker
+  if (!goalMarker) {
+    const geo = new THREE.SphereGeometry(0.5, 16, 16);
+    const mat = new THREE.MeshStandardMaterial({ color: 0xff4444, emissive: 0x661111 });
+    goalMarker = new THREE.Mesh(geo, mat);
+    scene.add(goalMarker);
+  }
+  goalMarker.position.copy(point);
+  goalMarker.position.y += 0.5;
+
+  document.getElementById("hud-progress").textContent = "Finding path...";
   await requestPath(currentGridPos[0], currentGridPos[1], row, col);
 });
 
 document.getElementById("clear-path-btn").addEventListener("click", () => {
   if (pathLine) { scene.remove(pathLine); pathLine = null; }
+  if (goalMarker) { scene.remove(goalMarker); goalMarker = null; }
 });
 
 async function requestPath(startRow, startCol, goalRow, goalCol) {
@@ -211,13 +380,18 @@ async function requestPath(startRow, startCol, goalRow, goalCol) {
     });
     if (!res.ok) {
       const err = await res.json();
+      document.getElementById("hud-progress").textContent = "No path found!";
       console.warn("Path request failed:", err.detail);
+      alert("No traversable path found — that area may be too steep. Try clicking somewhere else.");
       return;
     }
     const data = await res.json();
+    document.getElementById("hud-progress").textContent = `0 / ${data.waypoint_count}`;
     drawPath(data.path);
   } catch (e) {
+    document.getElementById("hud-progress").textContent = "Error!";
     console.error("Path request error:", e);
+    alert("Could not reach the backend. Is it running on port 8000?");
   }
 }
 

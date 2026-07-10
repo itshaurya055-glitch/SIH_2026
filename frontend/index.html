@@ -94,6 +94,40 @@
     100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
   }
 
+  .alert-card {
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.25);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    animation: slideDown 0.25s ease-out;
+  }
+  .alert-desc {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  .alert-title {
+    font-weight: 700;
+    color: var(--danger);
+    font-size: 0.95rem;
+  }
+  .alert-msg {
+    color: var(--text);
+    font-size: 0.85rem;
+  }
+  .alert-meta {
+    font-size: 0.75rem;
+    color: var(--muted);
+    text-align: right;
+  }
+  @keyframes slideDown {
+    from { transform: translateY(-10px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+
   .nav-link {
     display: inline-block; margin-top: 1rem; color: var(--accent);
     text-decoration: none; font-size: 0.9rem;
@@ -146,6 +180,19 @@
       <div class="panel-hdr"><h2 class="panel-title">⛰ Tilt (Pitch/Roll)</h2><div class="panel-val" id="v-tlt">--°</div></div>
       <div class="chart-wrap"><canvas id="c-tlt"></canvas></div>
     </div>
+
+    <!-- Anomaly Alert Feed -->
+    <div class="panel full" style="max-height: 400px; display: flex; flex-direction: column;">
+      <div class="panel-hdr">
+        <h2 class="panel-title" style="color: var(--danger);">⚠ Anomaly Alert Feed (Auto-detection)</h2>
+        <button class="btn btn-d" id="clear-alerts-btn" style="padding: 0.25rem 0.75rem; font-size: 0.8rem; margin: 0;">Clear Feed</button>
+      </div>
+      <div id="alert-list" style="overflow-y: auto; flex-grow: 1; display: flex; flex-direction: column; gap: 0.5rem; padding-right: 0.5rem;">
+        <div style="color: var(--muted); font-size: 0.9rem; text-align: center; margin-top: 1rem;" id="no-alerts-msg">
+          No anomalies detected. Stream is healthy.
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -180,13 +227,65 @@ const tltChart = new Chart(document.getElementById('c-tlt'), {
   type: 'line', data: { labels: [], datasets: [mkDS('Tilt °', '#a855f7')] }, options: chartOpts(-45, 45),
 });
 
-// --- WebSocket ---
+// --- WebSocket and Alerts ---
+function addAlertToFeed(alert) {
+  const noMsg = document.getElementById('no-alerts-msg');
+  if (noMsg) noMsg.remove();
+
+  const alertList = document.getElementById('alert-list');
+  
+  // limit feed length to 30 visible items
+  if (alertList.children.length > 30) {
+    alertList.removeChild(alertList.lastChild);
+  }
+
+  const timeStr = new Date(alert.timestamp * 1000).toLocaleTimeString();
+  const card = document.createElement('div');
+  card.className = 'alert-card';
+  card.innerHTML = `
+    <div class="alert-desc">
+      <span class="alert-title">⚠ ANOMALY DETECTED</span>
+      <span class="alert-msg">${alert.message}</span>
+    </div>
+    <div class="alert-meta">
+      <div><b>Score:</b> ${alert.score}</div>
+      <div style="color: var(--muted);">${timeStr}</div>
+    </div>
+  `;
+  
+  // prepend to top of list
+  alertList.insertBefore(card, alertList.firstChild);
+}
+
+async function loadRecentAlerts() {
+  try {
+    const res = await fetch(`${BACKEND}/api/alerts`);
+    if (res.ok) {
+      const list = await res.json();
+      // Reverse to add oldest first so newest ends up at the top
+      list.reverse().forEach(addAlertToFeed);
+    }
+  } catch (e) {
+    console.error('Failed to load recent alerts:', e);
+  }
+}
+
+document.getElementById('clear-alerts-btn').addEventListener('click', () => {
+  const alertList = document.getElementById('alert-list');
+  alertList.innerHTML = `
+    <div style="color: var(--muted); font-size: 0.9rem; text-align: center; margin-top: 1rem;" id="no-alerts-msg">
+      No anomalies detected. Stream is healthy.
+    </div>
+  `;
+});
+
 function connect() {
   const ws = new WebSocket('ws://localhost:8000/ws/telemetry');
 
   ws.onopen = () => {
     document.getElementById('dot').classList.add('ok');
     document.getElementById('conn-text').textContent = 'Live Stream Active';
+    loadRecentAlerts();
   };
 
   ws.onclose = () => {
@@ -213,10 +312,18 @@ function connect() {
     document.getElementById('v-com').textContent = d.comms_signal.toFixed(1) + '%';
     document.getElementById('v-tlt').textContent = d.tilt_deg.toFixed(1) + '°';
 
+    // Alerts processing
+    if (d.alerts && d.alerts.length > 0) {
+      d.alerts.forEach(addAlertToFeed);
+    }
+
     // Fault banner
     const banner = document.getElementById('fault-banner');
-    if (d.active_fault_count > 0) banner.classList.add('show');
-    else banner.classList.remove('show');
+    if (d.active_fault_count > 0 || (d.alerts && d.alerts.length > 0)) {
+      banner.classList.add('show');
+    } else {
+      banner.classList.remove('show');
+    }
   };
 }
 

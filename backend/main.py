@@ -135,9 +135,16 @@ def _advance_along_path():
     its tilt telemetry to the REAL slope at that grid cell from the DEM -
     this is what makes tilt readings meaningful instead of random noise."""
     if rover.active_path and rover.path_index < len(rover.active_path) - 1:
-        rover.path_index += 1
-        row, col = rover.active_path[rover.path_index]
-        rover.grid_pos = [row, col]
+        # If cool down is active, only advance every 3 seconds (slows down traversal)
+        if rover.mode == "COOL_DOWN" and rover.tick % 3 != 0:
+            pass
+        # If hibernating, halt the rover completely
+        elif rover.mode == "HIBERNATION":
+            pass
+        else:
+            rover.path_index += 1
+            row, col = rover.active_path[rover.path_index]
+            rover.grid_pos = [row, col]
 
     row, col = rover.grid_pos
     real_slope = dem.slope_at(row, col)
@@ -163,6 +170,22 @@ async def telemetry_stream(websocket: WebSocket):
             # Check for anomalies using the trained model
             alerts = detector.check(reading)
             reading["alerts"] = alerts
+            
+            # Determine operating mode based on detected anomalies (FDIR - Fault Detection, Isolation, and Recovery)
+            has_motor_anomaly = any("motor" in a["sensor"] for a in alerts)
+            has_battery_anomaly = any("battery" in a["sensor"] for a in alerts)
+            
+            if has_battery_anomaly:
+                rover.mode = "HIBERNATION"
+            elif has_motor_anomaly:
+                rover.mode = "COOL_DOWN"
+            else:
+                # Recover back to NOMINAL mode when active faults clear
+                if rover.active_fault_count == 0:
+                    rover.mode = "NOMINAL"
+            
+            # Ensure the reading payload contains the updated mode
+            reading["mode"] = rover.mode
             
             # Store in backend history
             for alert in alerts:

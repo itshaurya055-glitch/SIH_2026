@@ -33,6 +33,7 @@
 <div id="hud">
   <h1>🛰 Mission Copilot — Terrain View</h1>
   <div><span id="status-dot"></span><span id="status-text">Connecting...</span></div>
+  <div class="row"><span>System mode</span><b id="hud-mode" style="color: #33d17a;">NOMINAL</b></div>
   <div class="row"><span>Grid position</span><b id="hud-pos">--</b></div>
   <div class="row"><span>Tilt (real DEM slope)</span><b id="hud-tilt">--</b></div>
   <div class="row"><span>Path progress</span><b id="hud-progress">--</b></div>
@@ -422,6 +423,21 @@ function connectTelemetry() {
     if (d.path_progress) {
       document.getElementById("hud-progress").textContent =
         `${d.path_progress.index} / ${d.path_progress.total}`;
+    }
+
+    // Update Mode in HUD
+    const modeEl = document.getElementById("hud-mode");
+    if (modeEl && d.mode) {
+      modeEl.textContent = d.mode;
+      if (d.mode === "HIBERNATION") {
+        modeEl.style.color = "#ff5d5d";
+      } else if (d.mode === "COOL_DOWN") {
+        modeEl.style.color = "#ffb03a";
+      } else if (d.mode === "SAFE_MODE") {
+        modeEl.style.color = "#4da3ff";
+      } else {
+        modeEl.style.color = "#33d17a";
+      }
     }
   };
 }

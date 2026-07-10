@@ -139,7 +139,15 @@
 <div class="container">
   <header>
     <h1>🛰 Mission Copilot Telemetry</h1>
-    <div class="status"><div class="dot" id="dot"></div><span id="conn-text">Connecting…</span></div>
+    <div style="display: flex; gap: 0.75rem; align-items: center;">
+      <div class="status" id="mode-badge" style="background: rgba(16, 185, 129, 0.1); border-color: var(--success); color: var(--success); font-weight: 700;">
+        🤖 NOMINAL MODE
+      </div>
+      <div class="status">
+        <div class="dot" id="dot"></div>
+        <span id="conn-text">Connecting…</span>
+      </div>
+    </div>
   </header>
 
   <div class="fault-banner" id="fault-banner">⚠ Active anomaly detected in telemetry stream</div>
@@ -311,6 +319,30 @@ function connect() {
     document.getElementById('v-bat').textContent = d.battery_pct.toFixed(1) + '%';
     document.getElementById('v-com').textContent = d.comms_signal.toFixed(1) + '%';
     document.getElementById('v-tlt').textContent = d.tilt_deg.toFixed(1) + '°';
+
+    // Update Mode Badge
+    const badge = document.getElementById('mode-badge');
+    if (d.mode === 'HIBERNATION') {
+      badge.textContent = '🔌 HIBERNATION MODE';
+      badge.style.background = 'rgba(239, 68, 68, 0.1)';
+      badge.style.borderColor = 'var(--danger)';
+      badge.style.color = 'var(--danger)';
+    } else if (d.mode === 'COOL_DOWN') {
+      badge.textContent = '❄ COOL-DOWN MODE';
+      badge.style.background = 'rgba(245, 158, 11, 0.1)';
+      badge.style.borderColor = 'var(--warning)';
+      badge.style.color = 'var(--warning)';
+    } else if (d.mode === 'SAFE_MODE') {
+      badge.textContent = '🛡 SAFE MODE';
+      badge.style.background = 'rgba(59, 130, 246, 0.1)';
+      badge.style.borderColor = 'var(--accent)';
+      badge.style.color = 'var(--accent)';
+    } else {
+      badge.textContent = '🤖 NOMINAL MODE';
+      badge.style.background = 'rgba(16, 185, 129, 0.1)';
+      badge.style.borderColor = 'var(--success)';
+      badge.style.color = 'var(--success)';
+    }
 
     // Alerts processing
     if (d.alerts && d.alerts.length > 0) {

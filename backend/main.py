@@ -181,7 +181,7 @@ async def telemetry_stream(websocket: WebSocket):
                 rover.mode = "COOL_DOWN"
             else:
                 # Recover back to NOMINAL mode when active faults clear
-                if rover.active_fault_count == 0:
+                if len(rover.active_faults) == 0:
                     rover.mode = "NOMINAL"
             
             # Ensure the reading payload contains the updated mode

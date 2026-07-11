@@ -46,6 +46,9 @@ anomaly_detector = AnomalyDetector()  # trains on first run, loads cached model 
 telemetry_history = []
 MAX_TELEMETRY_HISTORY = 500
 
+# Track active anomaly event to prevent spamming the LLM rate limit
+is_currently_anomalous = False
+
 # Callbacks for Agent tools
 def get_telemetry_window(start_tick: int, end_tick: int) -> list:
     return [t for t in telemetry_history if start_tick <= t["tick"] <= end_tick]
@@ -281,6 +284,7 @@ async def telemetry_stream(websocket: WebSocket):
             if len(telemetry_history) > MAX_TELEMETRY_HISTORY:
                 telemetry_history.pop(0)
 
+            global is_currently_anomalous
             if anomaly_result["is_anomaly"]:
                 log_entry = {
                     "tick": reading["tick"],
@@ -300,8 +304,12 @@ async def telemetry_stream(websocket: WebSocket):
                 if len(mission_log) > MAX_LOG_ENTRIES:
                     mission_log.pop(0)
 
-                # Trigger autonomous agent in background task
-                asyncio.create_task(run_agent_diagnostics(reading, anomaly_result))
+                # Only run autonomous LLM agent if it's the beginning of the anomaly event
+                if not is_currently_anomalous:
+                    is_currently_anomalous = True
+                    asyncio.create_task(run_agent_diagnostics(reading, anomaly_result))
+            else:
+                is_currently_anomalous = False
 
             await websocket.send_text(json.dumps(reading))
             

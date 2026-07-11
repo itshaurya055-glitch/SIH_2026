@@ -24,6 +24,7 @@ from telemetry import RoverTelemetry
 from dem_processor import DEMProcessor
 from pathfinding import astar_path
 from anomaly_detector import AnomalyDetector
+from agent import AnomalyAgent
 
 app = FastAPI(title="Mission Copilot - Telemetry Service")
 
@@ -40,6 +41,55 @@ dem = DEMProcessor(active_dem_path, grid_size=GRID_SIZE)
 print(f"[startup] Loaded DEM from: {active_dem_path} (grid {GRID_SIZE}x{GRID_SIZE})")
 
 anomaly_detector = AnomalyDetector()  # trains on first run, loads cached model after
+
+# Rolling history of telemetry readings (capped at 500)
+telemetry_history = []
+MAX_TELEMETRY_HISTORY = 500
+
+# Callbacks for Agent tools
+def get_telemetry_window(start_tick: int, end_tick: int) -> list:
+    return [t for t in telemetry_history if start_tick <= t["tick"] <= end_tick]
+
+def get_terrain_info(row: int, col: int) -> dict:
+    try:
+        slope = dem.slope_at(row, col)
+        cost = dem.get_cost_grid()[row][col]
+        return {"slope": float(slope), "cost": float(cost)}
+    except Exception as e:
+        return {"error": str(e)}
+
+def trigger_replan(reason: str) -> str:
+    print(f"[main] Replan triggered by agent: {reason}")
+    if rover.goal_pos is None:
+        return "Failed: No active goal position set on rover."
+    
+    start = tuple(rover.grid_pos)
+    goal = tuple(rover.goal_pos)
+    
+    # Temporarily compute a safer cost grid with lower max slope limit
+    dem._compute_cost_grid(max_traversable_slope=15.0)
+    path = astar_path(dem.get_cost_grid(), start, goal)
+    # Restore normal cost grid
+    dem._compute_cost_grid(max_traversable_slope=25.0)
+    
+    if path is not None:
+        rover.active_path = [list(p) for p in path]
+        rover.path_index = 0
+        rover.replan_requested = True
+        return f"Success: Replanned safer path avoiding slopes. New path size: {len(path)} waypoints."
+    else:
+        return "Failed: No safer path found given reduced slope limits."
+
+def get_mission_log_callback() -> list:
+    return list(mission_log)
+
+agent = AnomalyAgent({
+    "get_telemetry_window": get_telemetry_window,
+    "get_terrain_info": get_terrain_info,
+    "trigger_replan": trigger_replan,
+    "get_mission_log": get_mission_log_callback
+})
+
 
 # Allow the frontend (running on a different port/origin during dev) to connect
 app.add_middleware(
@@ -86,6 +136,7 @@ async def status():
         "connected_clients": len(connected_clients),
         "dem_source": active_dem_path,
         "grid_size": GRID_SIZE,
+        "agent_available": agent.client is not None,
     }
 
 
@@ -113,8 +164,15 @@ async def compute_path(req: PathRequest):
     rover.active_path = [list(p) for p in path]
     rover.path_index = 0
     rover.grid_pos = list(start)
+    rover.goal_pos = list(goal)
+    rover.replan_requested = False
 
     return {"waypoint_count": len(path), "path": rover.active_path}
+
+
+@app.get("/api/path")
+async def get_active_path():
+    return {"path": rover.active_path, "waypoint_count": len(rover.active_path)}
 
 
 @app.get("/api/mission_log")
@@ -156,6 +214,34 @@ def _advance_along_path():
     rover.tilt_deg = real_slope + ((-1) ** (row + col)) * 0.5
 
 
+class ChatRequest(BaseModel):
+    message: str
+    history: Optional[list[dict]] = []
+
+@app.post("/api/agent/chat")
+async def agent_chat(req: ChatRequest):
+    result = await asyncio.to_thread(agent.run_chat_agent, req.message, req.history)
+    return result
+
+@app.get("/api/agent/decisions")
+async def get_agent_decisions():
+    from agent import agent_decision_log
+    return {"decisions": agent_decision_log}
+
+async def run_agent_diagnostics(reading: dict, anomaly_result: dict):
+    top_feature = anomaly_result["top_contributing_features"][0] if anomaly_result["top_contributing_features"] else None
+    detail = f"{top_feature['feature']} (z={top_feature['z_score']})" if top_feature else "unspecified"
+    alert_msg = f"Tick {reading['tick']}: anomaly detected via {anomaly_result['detected_by']} — {detail}"
+    
+    anomaly_details = {
+        "message": alert_msg,
+        "sensor": top_feature["feature"] if top_feature else "general",
+        "tick": reading["tick"],
+        "anomaly_score": anomaly_result["anomaly_score"],
+        "max_z_score": anomaly_result["max_z_score"]
+    }
+    await asyncio.to_thread(agent.run_autonomous_agent, anomaly_details)
+
 @app.websocket("/ws/telemetry")
 async def telemetry_stream(websocket: WebSocket):
     await websocket.accept()
@@ -188,6 +274,12 @@ async def telemetry_stream(websocket: WebSocket):
                     rover.mode = "NOMINAL"
 
             reading["mode"] = rover.mode
+            reading["replan_requested"] = rover.replan_requested
+
+            # Save to telemetry history
+            telemetry_history.append(reading.copy())
+            if len(telemetry_history) > MAX_TELEMETRY_HISTORY:
+                telemetry_history.pop(0)
 
             if anomaly_result["is_anomaly"]:
                 log_entry = {
@@ -208,7 +300,15 @@ async def telemetry_stream(websocket: WebSocket):
                 if len(mission_log) > MAX_LOG_ENTRIES:
                     mission_log.pop(0)
 
+                # Trigger autonomous agent in background task
+                asyncio.create_task(run_agent_diagnostics(reading, anomaly_result))
+
             await websocket.send_text(json.dumps(reading))
+            
+            # Reset the trigger flag once sent to client
+            if rover.replan_requested:
+                rover.replan_requested = False
+
             await asyncio.sleep(1.0)  # 1 reading per second
     except WebSocketDisconnect:
         connected_clients.remove(websocket)

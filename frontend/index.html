@@ -66,7 +66,7 @@
   button:hover { border-color: var(--accent); }
   .alert-feed {
     margin-top: 16px;
-    max-height: 160px;
+    max-height: 180px;
     overflow-y: auto;
     font-size: 13px;
   }
@@ -76,6 +76,156 @@
     background: #1a1216;
     margin-bottom: 6px;
     border-radius: 4px;
+  }
+  .agent-grid {
+    display: grid;
+    grid-template-columns: 1fr 1.2fr;
+    gap: 16px;
+    margin-top: 20px;
+  }
+  .chat-container {
+    display: flex;
+    flex-direction: column;
+    height: 320px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #0d121b;
+  }
+  .chat-header {
+    padding: 10px 12px;
+    background: #121822;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .chat-messages {
+    flex-grow: 1;
+    overflow-y: auto;
+    padding: 10px;
+    font-size: 13px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .chat-bubble {
+    padding: 8px 12px;
+    border-radius: 8px;
+    max-width: 85%;
+    line-height: 1.4;
+  }
+  .chat-bubble.operator {
+    background: #1a2c42;
+    align-self: flex-end;
+    border-bottom-right-radius: 2px;
+  }
+  .chat-bubble.agent {
+    background: #152219;
+    border: 1px solid rgba(51, 209, 122, 0.15);
+    align-self: flex-start;
+    border-bottom-left-radius: 2px;
+  }
+  .chat-input-row {
+    display: flex;
+    border-top: 1px solid var(--border);
+    padding: 6px;
+    gap: 6px;
+    background: #121822;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+  }
+  .chat-input-row input {
+    flex-grow: 1;
+    background: #0d121b;
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 13px;
+  }
+  .chat-input-row input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .chat-input-row button {
+    margin-top: 0;
+    background: var(--accent);
+    color: #05070a;
+    font-weight: 600;
+    border: none;
+  }
+  .chat-input-row button:hover {
+    background: #73b7ff;
+  }
+  .decisions-container {
+    display: flex;
+    flex-direction: column;
+    height: 320px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #121822;
+    padding: 12px;
+  }
+  .decisions-list {
+    flex-grow: 1;
+    overflow-y: auto;
+    font-size: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 8px;
+  }
+  .decision-item {
+    background: #0d121b;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px;
+  }
+  .decision-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 600;
+    margin-bottom: 6px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .tag {
+    font-size: 9px;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-weight: bold;
+    letter-spacing: 0.05em;
+  }
+  .tag.replan { background: rgba(255, 93, 93, 0.15); color: var(--danger); border: 1px solid rgba(255, 93, 93, 0.3); }
+  .tag.slow_down { background: rgba(255, 184, 77, 0.15); color: #ffb84d; border: 1px solid rgba(255, 184, 77, 0.3); }
+  .tag.none { background: rgba(139, 152, 165, 0.15); color: var(--muted); border: 1px solid rgba(139, 152, 165, 0.3); }
+  
+  .thought-block {
+    background: rgba(255, 255, 255, 0.02);
+    border-left: 2px solid var(--muted);
+    padding: 4px 8px;
+    margin-bottom: 6px;
+    color: var(--muted);
+    font-style: italic;
+  }
+  .tool-tag {
+    font-family: monospace;
+    font-size: 9px;
+    background: rgba(77, 163, 255, 0.1);
+    padding: 2px 4px;
+    border-radius: 3px;
+    color: #4da3ff;
+    border: 1px solid rgba(77, 163, 255, 0.2);
+    margin-right: 4px;
+  }
+  .tool-calls-span {
+    font-size: 11px;
+    color: var(--muted);
   }
 </style>
 </head>
@@ -87,6 +237,7 @@
 <div class="status-row">
   <div id="statusDot" class="dot"></div>
   <span id="statusText">Connecting...</span>
+  <span style="margin-left: 20px; color: var(--muted);">System Mode: <b id="modeText" style="color: var(--ok);">NOMINAL</b></span>
 </div>
 
 <div class="grid">
@@ -124,6 +275,35 @@
     <button onclick="injectFault('tilt_spike', 'general')">⚠️ Tilt Spike</button>
   </div>
   <div class="alert-feed" id="alertFeed"></div>
+</div>
+
+<div class="agent-grid">
+  <!-- AI Agent Chat Interface -->
+  <div class="chat-container">
+    <div class="chat-header">
+      <span>💬 MISSION COPILOT AI CHAT</span>
+      <span id="agentStatus" style="font-size: 10px; color: var(--danger);">● OFFLINE</span>
+    </div>
+    <div class="chat-messages" id="chatMessages">
+      <div class="chat-bubble agent">
+        Hello Operator. I am the autonomous Mission Copilot agent. I can monitor diagnostics, run analytical tools, and explain anomalies. Feel free to query current status or previous decisions.
+      </div>
+    </div>
+    <div class="chat-input-row">
+      <input type="text" id="chatInput" placeholder="Ask Mission Copilot..." onkeydown="if(event.key==='Enter') sendChatMessage()" />
+      <button onclick="sendChatMessage()">Send</button>
+    </div>
+  </div>
+
+  <!-- Autonomous Decisions Log -->
+  <div class="decisions-container">
+    <h3 style="margin-top:0; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em;">🧠 Autonomous Decisions Log</h3>
+    <div class="decisions-list" id="decisionsList">
+      <div style="color: var(--muted); text-align: center; margin-top: 20px; font-style: italic;">
+        No decisions logged yet. System is nominal.
+      </div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -179,12 +359,140 @@ function pushPoint(chart, datasetIndex, tick, value) {
   chart.update("none");
 }
 
+let chatHistory = [];
+
+async function checkAgentStatus() {
+  try {
+    const res = await fetch(`${BACKEND_HTTP}/api/status`);
+    if (res.ok) {
+      const data = await res.json();
+      const statusEl = document.getElementById("agentStatus");
+      if (data.agent_available) {
+        statusEl.textContent = "● ONLINE";
+        statusEl.style.color = "var(--ok)";
+      } else {
+        statusEl.textContent = "● OFFLINE (FALLBACK ACTIVE)";
+        statusEl.style.color = "var(--danger)";
+      }
+    }
+  } catch (e) {
+    console.error("Agent status check failed:", e);
+  }
+}
+
+async function loadDecisions() {
+  try {
+    const res = await fetch(`${BACKEND_HTTP}/api/agent/decisions`);
+    if (res.ok) {
+      const data = await res.json();
+      const listEl = document.getElementById("decisionsList");
+      if (!data.decisions || data.decisions.length === 0) {
+        listEl.innerHTML = `
+          <div style="color: var(--muted); text-align: center; margin-top: 20px; font-style: italic;">
+            No decisions logged yet. System is nominal.
+          </div>
+        `;
+        return;
+      }
+
+      listEl.innerHTML = "";
+      // Display newest decisions at the top
+      data.decisions.slice().reverse().forEach(dec => {
+        const item = document.createElement("div");
+        item.className = "decision-item";
+        
+        const timeStr = new Date(dec.timestamp * 1000).toLocaleTimeString();
+        const actionTag = dec.final_action.toLowerCase();
+        
+        let stepsHtml = "";
+        if (dec.steps && dec.steps.length > 0) {
+          stepsHtml = dec.steps.map(step => `
+            <div class="thought-block">
+              ${step.thought ? `<b>Thought:</b> ${step.thought}<br/>` : ""}
+              ${step.tool !== "none" ? `<b>Action:</b> <span class="tool-tag">${step.tool}</span> args: ${JSON.stringify(step.args)}` : ""}
+            </div>
+          `).join("");
+        }
+
+        item.innerHTML = `
+          <div class="decision-header">
+            <span>Tick ${dec.anomaly.tick} • ${timeStr}</span>
+            <span class="tag ${actionTag}">${dec.final_action}</span>
+          </div>
+          <div style="margin-bottom: 6px; font-weight: 500;">Anomaly Alert Context:</div>
+          <div style="color: var(--danger); font-size: 11px; font-family: monospace; background: rgba(0,0,0,0.2); padding: 4px; border-radius: 4px; margin-bottom: 8px;">
+            ${dec.anomaly.message}
+          </div>
+          ${stepsHtml}
+          <div style="border-top: 1px solid var(--border); padding-top: 6px; margin-top: 6px; color: var(--ok);">
+            <b>Agent Diagnosis:</b> ${dec.explanation}
+          </div>
+        `;
+        listEl.appendChild(item);
+      });
+    }
+  } catch (e) {
+    console.error("Failed to load decisions:", e);
+  }
+}
+
+async function sendChatMessage() {
+  const inputEl = document.getElementById("chatInput");
+  const text = inputEl.value.trim();
+  if (!text) return;
+
+  inputEl.value = "";
+  appendChatBubble("operator", text);
+  chatHistory.push({"role": "user", "content": text});
+
+  // Keep chat history bounded
+  if (chatHistory.length > 10) chatHistory.shift();
+
+  try {
+    const res = await fetch(`${BACKEND_HTTP}/api/agent/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message: text, history: chatHistory })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      appendChatBubble("agent", data.response, data.tools_called);
+      chatHistory.push({"role": "assistant", "content": data.response});
+    } else {
+      appendChatBubble("agent", "Error: Agent is unreachable or failed to respond.");
+    }
+  } catch (e) {
+    console.error("Chat failed:", e);
+    appendChatBubble("agent", "Network error: Cannot reach the Mission Control API.");
+  }
+}
+
+function appendChatBubble(sender, text, toolsCalled = []) {
+  const msgsEl = document.getElementById("chatMessages");
+  const bubble = document.createElement("div");
+  bubble.className = `chat-bubble ${sender}`;
+  
+  let toolsHtml = "";
+  if (toolsCalled && toolsCalled.length > 0) {
+    toolsHtml = `<div class="tool-calls-span">🛠 Tools used: ${toolsCalled.map(t => `<span class="tool-tag">${t}</span>`).join(" ")}</div>`;
+  }
+
+  bubble.innerHTML = `
+    <div>${text}</div>
+    ${toolsHtml}
+  `;
+  msgsEl.appendChild(bubble);
+  msgsEl.scrollTop = msgsEl.scrollHeight;
+}
+
 function connect() {
   const ws = new WebSocket(BACKEND_WS);
 
   ws.onopen = () => {
     document.getElementById("statusDot").classList.add("connected");
     document.getElementById("statusText").textContent = "Connected — live telemetry streaming";
+    checkAgentStatus();
+    loadDecisions();
   };
 
   ws.onclose = () => {
@@ -203,6 +511,17 @@ function connect() {
     document.getElementById("commsStat").textContent = d.comms_signal + "%";
     document.getElementById("motorStat").textContent =
       Object.entries(d.motor_temp).map(([k, v]) => `${k}: ${v}°C`).join(" · ");
+
+    // System mode display color coding
+    const modeEl = document.getElementById("modeText");
+    modeEl.textContent = d.mode;
+    if (d.mode === "HIBERNATION") {
+      modeEl.style.color = "var(--danger)";
+    } else if (d.mode === "COOL_DOWN") {
+      modeEl.style.color = "#ffb84d";
+    } else {
+      modeEl.style.color = "var(--ok)";
+    }
 
     pushPoint(batteryChart, 0, d.tick, d.battery_pct);
     pushPoint(tiltChart, 0, d.tick, d.tilt_deg);
@@ -225,6 +544,9 @@ function connect() {
         ? `${topFeature.feature} (z=${topFeature.z_score})`
         : "unspecified";
       addAlert(`Tick ${d.tick}: anomaly detected via ${d.anomaly.detected_by} — ${detail}`);
+      
+      // Delay to let background agent thread execute and save its decision log entry
+      setTimeout(loadDecisions, 2500);
     }
   };
 }
@@ -248,6 +570,8 @@ async function injectFault(fault_type, target) {
 }
 
 connect();
+// Periodic status check
+setInterval(checkAgentStatus, 10000);
 </script>
 </body>
 </html>

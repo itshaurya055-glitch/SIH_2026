@@ -311,6 +311,22 @@ async function requestPath(startRow, startCol, goalRow, goalCol) {
   }
 }
 
+// ---------- Fetch Active Path ----------
+async function loadActivePath() {
+  try {
+    const res = await fetch(`${BACKEND_HTTP}/api/path`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.path && data.path.length > 0) {
+        document.getElementById("hud-progress").textContent = `0 / ${data.waypoint_count}`;
+        drawPath(data.path);
+      }
+    }
+  } catch (e) {
+    console.error("Failed to load active path on startup:", e);
+  }
+}
+
 // ---------- WebSocket telemetry (drives rover animation) ----------
 function connectTelemetry() {
   const ws = new WebSocket(BACKEND_WS);
@@ -359,6 +375,12 @@ function connectTelemetry() {
       else if (d.mode === "COOL_DOWN") modeEl.style.color = "#ffb03a";
       else modeEl.style.color = "#33d17a";
     }
+
+    // Agent replan detection
+    if (d.replan_requested) {
+      console.log("[terrain] Replan requested by AI agent. Reloading path...");
+      setTimeout(loadActivePath, 1500);
+    }
   };
 }
 
@@ -373,6 +395,7 @@ function animate() {
 (async function init() {
   await loadTerrain();
   createRover();
+  loadActivePath();
   connectTelemetry();
   animate();
 })();

@@ -6,4 +6,5 @@ numpy
 rasterio
 scikit-learn
 joblib
+openai
 

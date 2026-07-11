@@ -43,6 +43,8 @@ class RoverTelemetry:
         self.tick = 0
         self.active_faults: list[Fault] = []
         self.mode = "NOMINAL"  # "NOMINAL" | "COOL_DOWN" | "HIBERNATION"
+        self.goal_pos = None
+        self.replan_requested = False
 
     def inject_fault(self, fault_type: str, target: str = "general",
                       magnitude: float = 1.0, duration_ticks: int = 20):

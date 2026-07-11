@@ -1,102 +1,159 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<title>Mission Copilot - Telemetry Dashboard (Week 1)</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.3/chart.umd.min.js"></script>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Mission Copilot — Telemetry Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+
   :root {
-    --bg: #0b0f14;
-    --panel: #121822;
-    --border: #1f2a37;
-    --text: #e6edf3;
-    --muted: #8b98a5;
-    --accent: #4da3ff;
-    --danger: #ff5d5d;
-    --ok: #33d17a;
+    --bg: #0b0f19;
+    --panel: #151b2b;
+    --border: #1e293b;
+    --text: #f1f5f9;
+    --muted: #94a3b8;
+    --accent: #3b82f6;
+    --danger: #ef4444;
+    --warning: #f59e0b;
+    --success: #10b981;
   }
-  * { box-sizing: border-box; }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
   body {
-    margin: 0;
+    font-family: 'Inter', -apple-system, sans-serif;
     background: var(--bg);
     color: var(--text);
-    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
-    padding: 20px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
   }
-  h1 { font-size: 20px; margin: 0 0 4px 0; }
-  .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
-  .status-row {
-    display: flex; align-items: center; gap: 10px; margin-bottom: 20px;
+
+  .container { max-width: 1400px; margin: 0 auto; padding: 2rem; }
+
+  header {
+    display: flex; justify-content: space-between; align-items: center;
+    border-bottom: 1px solid var(--border); padding-bottom: 1rem; margin-bottom: 2rem;
   }
-  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--danger); }
-  .dot.connected { background: var(--ok); }
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-    gap: 16px;
+
+  h1 { font-size: 1.8rem; font-weight: 700; letter-spacing: -0.025em; }
+
+  .status {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    font-size: 0.875rem; color: var(--muted);
+    background: var(--panel); padding: 0.5rem 1rem; border-radius: 20px;
+    border: 1px solid var(--border);
   }
+
+  .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--danger); box-shadow: 0 0 8px rgba(239,68,68,0.4);
+  }
+  .dot.ok { background: var(--success); box-shadow: 0 0 8px rgba(16,185,129,0.5); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; }
+  .full { grid-column: 1 / -1; }
+
+  @media (min-width: 900px) {
+    .span-2 { grid-column: span 2; }
+  }
+
   .panel {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 16px;
+    background: var(--panel); border-radius: 12px; border: 1px solid var(--border);
+    padding: 1.5rem; transition: transform 0.2s, box-shadow 0.2s;
   }
-  .panel h3 { margin: 0 0 10px 0; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
-  .stat { font-size: 26px; font-weight: 600; }
-  .stat-sub { color: var(--muted); font-size: 12px; }
-  canvas { max-height: 180px; }
-  .controls {
-    margin-top: 24px;
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 16px;
+  .panel:hover { transform: translateY(-2px); box-shadow: 0 10px 15px rgba(0,0,0,0.1); }
+
+  .panel-hdr { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+  .panel-title { font-size: 1.1rem; font-weight: 600; color: var(--muted); }
+  .panel-val { font-size: 1.5rem; font-weight: 700; }
+
+  .chart-wrap { height: 250px; position: relative; }
+
+  .btns { display: flex; flex-wrap: wrap; gap: 1rem; }
+  .btn {
+    background: transparent; color: var(--text); border: 1px solid var(--border);
+    padding: 0.75rem 1.25rem; border-radius: 8px; font-size: 0.875rem;
+    font-weight: 600; cursor: pointer; transition: all 0.2s;
   }
-  .controls h3 { margin-top: 0; font-size: 13px; color: var(--muted); text-transform: uppercase; }
-  .btn-row { display: flex; flex-wrap: wrap; gap: 10px; }
-  button {
-    background: #1a2432;
+  .btn:hover { background: var(--border); }
+  .btn-d { border-color: var(--danger); color: var(--danger); }
+  .btn-d:hover { background: var(--danger); color: #fff; box-shadow: 0 0 12px rgba(239,68,68,0.4); }
+  .btn-w { border-color: var(--warning); color: var(--warning); }
+  .btn-w:hover { background: var(--warning); color: #fff; }
+  .btn-a { border-color: var(--accent); color: var(--accent); }
+  .btn-a:hover { background: var(--accent); color: #fff; }
+
+  .fault-banner {
+    background: rgba(239,68,68,0.1); border: 1px solid var(--danger); color: var(--danger);
+    padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; font-weight: 600;
+    animation: pulse 2s infinite; display: none;
+  }
+  .fault-banner.show { display: block; }
+
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(239,68,68,0.4); }
+    70% { box-shadow: 0 0 0 6px rgba(239,68,68,0); }
+    100% { box-shadow: 0 0 0 0 rgba(239,68,68,0); }
+  }
+
+  .alert-card {
+    background: rgba(239, 68, 68, 0.08);
+    border: 1px solid rgba(239, 68, 68, 0.25);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    animation: slideDown 0.25s ease-out;
+  }
+  .alert-desc {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+  .alert-title {
+    font-weight: 700;
+    color: var(--danger);
+    font-size: 0.95rem;
+  }
+  .alert-msg {
     color: var(--text);
-    border: 1px solid var(--border);
-    padding: 8px 14px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 13px;
+    font-size: 0.85rem;
   }
-  button:hover { border-color: var(--accent); }
-  .alert-feed {
-    margin-top: 16px;
-    max-height: 180px;
-    overflow-y: auto;
-    font-size: 13px;
+  .alert-meta {
+    font-size: 0.75rem;
+    color: var(--muted);
+    text-align: right;
   }
-  .alert-item {
-    padding: 6px 10px;
-    border-left: 3px solid var(--danger);
-    background: #1a1216;
-    margin-bottom: 6px;
-    border-radius: 4px;
+  @keyframes slideDown {
+    from { transform: translateY(-10px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
   }
-  .agent-grid {
-    display: grid;
-    grid-template-columns: 1fr 1.2fr;
-    gap: 16px;
-    margin-top: 20px;
+
+  .nav-link {
+    display: inline-block; margin-top: 1rem; color: var(--accent);
+    text-decoration: none; font-size: 0.9rem;
   }
+  .nav-link:hover { text-decoration: underline; }
+
+  /* Agent UI elements */
   .chat-container {
     display: flex;
     flex-direction: column;
-    height: 320px;
+    height: 380px;
+    background: #0d121b;
     border: 1px solid var(--border);
     border-radius: 8px;
-    background: #0d121b;
+    overflow: hidden;
   }
   .chat-header {
-    padding: 10px 12px;
-    background: #121822;
+    padding: 0.75rem 1rem;
+    background: var(--panel);
     border-bottom: 1px solid var(--border);
-    font-size: 12px;
-    font-weight: 600;
+    font-size: 0.85rem;
+    font-weight: 700;
     color: var(--muted);
     display: flex;
     justify-content: space-between;
@@ -105,105 +162,98 @@
   .chat-messages {
     flex-grow: 1;
     overflow-y: auto;
-    padding: 10px;
-    font-size: 13px;
+    padding: 1rem;
+    font-size: 0.9rem;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 0.75rem;
   }
   .chat-bubble {
-    padding: 8px 12px;
+    padding: 0.65rem 0.9rem;
     border-radius: 8px;
     max-width: 85%;
     line-height: 1.4;
   }
   .chat-bubble.operator {
-    background: #1a2c42;
+    background: #1e293b;
+    color: var(--text);
     align-self: flex-end;
     border-bottom-right-radius: 2px;
   }
   .chat-bubble.agent {
-    background: #152219;
-    border: 1px solid rgba(51, 209, 122, 0.15);
+    background: #142217;
+    color: var(--text);
+    border: 1px solid rgba(16, 185, 129, 0.2);
     align-self: flex-start;
     border-bottom-left-radius: 2px;
   }
   .chat-input-row {
     display: flex;
     border-top: 1px solid var(--border);
-    padding: 6px;
-    gap: 6px;
-    background: #121822;
-    border-bottom-left-radius: 8px;
-    border-bottom-right-radius: 8px;
+    padding: 0.5rem;
+    gap: 0.5rem;
+    background: var(--panel);
   }
   .chat-input-row input {
     flex-grow: 1;
     background: #0d121b;
     border: 1px solid var(--border);
     color: var(--text);
-    padding: 8px 12px;
-    border-radius: 4px;
-    font-size: 13px;
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.9rem;
   }
   .chat-input-row input:focus {
     outline: none;
     border-color: var(--accent);
   }
   .chat-input-row button {
-    margin-top: 0;
     background: var(--accent);
-    color: #05070a;
-    font-weight: 600;
+    color: #fff;
+    font-weight: 700;
     border: none;
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    cursor: pointer;
   }
   .chat-input-row button:hover {
-    background: #73b7ff;
+    background: #2563eb;
   }
-  .decisions-container {
-    display: flex;
-    flex-direction: column;
-    height: 320px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: #121822;
-    padding: 12px;
-  }
+
   .decisions-list {
-    flex-grow: 1;
     overflow-y: auto;
-    font-size: 12px;
+    font-size: 0.85rem;
     display: flex;
     flex-direction: column;
-    gap: 8px;
-    margin-top: 8px;
+    gap: 0.75rem;
+    height: 330px;
+    margin-top: 0.5rem;
   }
   .decision-item {
     background: #0d121b;
     border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 10px;
+    border-radius: 8px;
+    padding: 0.9rem;
   }
   .decision-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    font-weight: 600;
-    margin-bottom: 6px;
-    font-size: 11px;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+    font-size: 0.8rem;
     color: var(--muted);
   }
   .tag {
-    font-size: 9px;
+    font-size: 0.75rem;
     text-transform: uppercase;
     padding: 2px 6px;
     border-radius: 10px;
-    font-weight: bold;
-    letter-spacing: 0.05em;
+    font-weight: 700;
   }
-  .tag.replan { background: rgba(255, 93, 93, 0.15); color: var(--danger); border: 1px solid rgba(255, 93, 93, 0.3); }
-  .tag.slow_down { background: rgba(255, 184, 77, 0.15); color: #ffb84d; border: 1px solid rgba(255, 184, 77, 0.3); }
-  .tag.none { background: rgba(139, 152, 165, 0.15); color: var(--muted); border: 1px solid rgba(139, 152, 165, 0.3); }
+  .tag.replan { background: rgba(239, 68, 68, 0.15); color: var(--danger); border: 1px solid rgba(239, 68, 68, 0.3); }
+  .tag.slow_down { background: rgba(245, 158, 11, 0.15); color: var(--warning); border: 1px solid rgba(245, 158, 11, 0.3); }
+  .tag.none { background: rgba(148, 163, 184, 0.15); color: var(--muted); border: 1px solid rgba(148, 163, 184, 0.3); }
   
   .thought-block {
     background: rgba(255, 255, 255, 0.02);
@@ -215,161 +265,220 @@
   }
   .tool-tag {
     font-family: monospace;
-    font-size: 9px;
-    background: rgba(77, 163, 255, 0.1);
+    font-size: 0.75rem;
+    background: rgba(59, 130, 246, 0.1);
     padding: 2px 4px;
     border-radius: 3px;
-    color: #4da3ff;
-    border: 1px solid rgba(77, 163, 255, 0.2);
+    color: var(--accent);
+    border: 1px solid rgba(59, 130, 246, 0.2);
     margin-right: 4px;
   }
   .tool-calls-span {
-    font-size: 11px;
+    font-size: 0.75rem;
     color: var(--muted);
   }
 </style>
 </head>
 <body>
-
-<h1>🛰 Mission Copilot — Telemetry Dashboard</h1>
-<div class="subtitle">Week 1: raw telemetry pipeline (backend → WebSocket → live charts)</div>
-
-<div class="status-row">
-  <div id="statusDot" class="dot"></div>
-  <span id="statusText">Connecting...</span>
-  <span style="margin-left: 20px; color: var(--muted);">System Mode: <b id="modeText" style="color: var(--ok);">NOMINAL</b></span>
-</div>
-
-<div class="grid">
-  <div class="panel">
-    <h3>Battery</h3>
-    <div class="stat" id="batteryStat">--%</div>
-    <canvas id="batteryChart"></canvas>
-  </div>
-
-  <div class="panel">
-    <h3>Motor Temperature (°C)</h3>
-    <div class="stat-sub" id="motorStat">--</div>
-    <canvas id="motorChart"></canvas>
-  </div>
-
-  <div class="panel">
-    <h3>Tilt (deg)</h3>
-    <div class="stat" id="tiltStat">--°</div>
-    <canvas id="tiltChart"></canvas>
-  </div>
-
-  <div class="panel">
-    <h3>Comms Signal</h3>
-    <div class="stat" id="commsStat">--%</div>
-    <canvas id="commsChart"></canvas>
-  </div>
-</div>
-
-<div class="controls">
-  <h3>Demo Controls — Fault Injection</h3>
-  <div class="btn-row">
-    <button onclick="injectFault('motor_temp_spike', 'front_left')">🔥 Spike Front-Left Motor Temp</button>
-    <button onclick="injectFault('battery_drain', 'general')">🔋 Drain Battery</button>
-    <button onclick="injectFault('comms_dropout', 'general')">📡 Comms Dropout</button>
-    <button onclick="injectFault('tilt_spike', 'general')">⚠️ Tilt Spike</button>
-  </div>
-  <div class="alert-feed" id="alertFeed"></div>
-</div>
-
-<div class="agent-grid">
-  <!-- AI Agent Chat Interface -->
-  <div class="chat-container">
-    <div class="chat-header">
-      <span>💬 MISSION COPILOT AI CHAT</span>
-      <span id="agentStatus" style="font-size: 10px; color: var(--danger);">● OFFLINE</span>
-    </div>
-    <div class="chat-messages" id="chatMessages">
-      <div class="chat-bubble agent">
-        Hello Operator. I am the autonomous Mission Copilot agent. I can monitor diagnostics, run analytical tools, and explain anomalies. Feel free to query current status or previous decisions.
+<div class="container">
+  <header>
+    <h1>🛰 Mission Copilot Telemetry</h1>
+    <div style="display: flex; gap: 0.75rem; align-items: center;">
+      <div class="status" id="mode-badge" style="background: rgba(16, 185, 129, 0.1); border-color: var(--success); color: var(--success); font-weight: 700;">
+        🤖 NOMINAL MODE
+      </div>
+      <div class="status">
+        <div class="dot" id="dot"></div>
+        <span id="conn-text">Connecting…</span>
       </div>
     </div>
-    <div class="chat-input-row">
-      <input type="text" id="chatInput" placeholder="Ask Mission Copilot..." onkeydown="if(event.key==='Enter') sendChatMessage()" />
-      <button onclick="sendChatMessage()">Send</button>
-    </div>
-  </div>
+  </header>
 
-  <!-- Autonomous Decisions Log -->
-  <div class="decisions-container">
-    <h3 style="margin-top:0; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em;">🧠 Autonomous Decisions Log</h3>
-    <div class="decisions-list" id="decisionsList">
-      <div style="color: var(--muted); text-align: center; margin-top: 20px; font-style: italic;">
-        No decisions logged yet. System is nominal.
+  <div class="fault-banner" id="fault-banner">⚠ Active anomaly detected in telemetry stream</div>
+
+  <div class="grid">
+    <!-- Controls -->
+    <div class="panel full">
+      <div class="panel-hdr"><h2 class="panel-title">Fault Injection Demo Controls</h2></div>
+      <div class="btns">
+        <button class="btn btn-w" onclick="inject('motor_temp_spike','front_left',2)">🌡 Spike Motor Temp</button>
+        <button class="btn btn-d" onclick="inject('battery_drain','general',1.5)">🔋 Battery Drain</button>
+        <button class="btn btn-w" onclick="inject('comms_dropout','general',2)">📡 Comms Dropout</button>
+        <button class="btn btn-a" onclick="inject('tilt_spike','general',1.5)">⛰ Tilt Spike</button>
+      </div>
+      <a href="terrain.html" class="nav-link">→ Open 3D Terrain View (Week 2)</a>
+    </div>
+
+    <!-- Battery -->
+    <div class="panel">
+      <div class="panel-hdr"><h2 class="panel-title">🔋 Battery Level</h2><div class="panel-val" id="v-bat">--%</div></div>
+      <div class="chart-wrap"><canvas id="c-bat"></canvas></div>
+    </div>
+
+    <!-- Motors -->
+    <div class="panel">
+      <div class="panel-hdr"><h2 class="panel-title">🌡 Motor Temperatures</h2></div>
+      <div class="chart-wrap"><canvas id="c-mot"></canvas></div>
+    </div>
+
+    <!-- Comms -->
+    <div class="panel">
+      <div class="panel-hdr"><h2 class="panel-title">📡 Comms Signal</h2><div class="panel-val" id="v-com">--%</div></div>
+      <div class="chart-wrap"><canvas id="c-com"></canvas></div>
+    </div>
+
+    <!-- Tilt -->
+    <div class="panel">
+      <div class="panel-hdr"><h2 class="panel-title">⛰ Tilt (Pitch/Roll)</h2><div class="panel-val" id="v-tlt">--°</div></div>
+      <div class="chart-wrap"><canvas id="c-tlt"></canvas></div>
+    </div>
+
+    <!-- AI Agent Chat Interface -->
+    <div class="panel span-2" style="padding: 0;">
+      <div class="chat-container">
+        <div class="chat-header">
+          <span>💬 MISSION COPILOT AI CHAT</span>
+          <span id="agentStatus" style="font-size: 10px; color: var(--danger);">● OFFLINE</span>
+        </div>
+        <div class="chat-messages" id="chatMessages">
+          <div class="chat-bubble agent">
+            Hello Operator. I am the autonomous Mission Copilot agent. I can monitor diagnostics, run analytical tools, and explain anomalies. Feel free to query current status or previous decisions.
+          </div>
+        </div>
+        <div class="chat-input-row">
+          <input type="text" id="chatInput" placeholder="Ask Mission Copilot..." onkeydown="if(event.key==='Enter') sendChatMessage()" />
+          <button onclick="sendChatMessage()">Send</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Autonomous Decisions Log -->
+    <div class="panel">
+      <h3 style="margin-top:0; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:0.05em; border-bottom: 1px solid var(--border); padding-bottom: 6px;">🧠 Autonomous Decisions Log</h3>
+      <div class="decisions-list" id="decisionsList">
+        <div style="color: var(--muted); text-align: center; margin-top: 20px; font-style: italic;">
+          No decisions logged yet. System is nominal.
+        </div>
+      </div>
+    </div>
+
+    <!-- Anomaly Alert Feed -->
+    <div class="panel full" style="max-height: 400px; display: flex; flex-direction: column;">
+      <div class="panel-hdr">
+        <h2 class="panel-title" style="color: var(--danger);">⚠ Anomaly Alert Feed (Auto-detection)</h2>
+        <button class="btn btn-d" id="clear-alerts-btn" style="padding: 0.25rem 0.75rem; font-size: 0.8rem; margin: 0;">Clear Feed</button>
+      </div>
+      <div id="alert-list" style="overflow-y: auto; flex-grow: 1; display: flex; flex-direction: column; gap: 0.5rem; padding-right: 0.5rem;">
+        <div style="color: var(--muted); font-size: 0.9rem; text-align: center; margin-top: 1rem;" id="no-alerts-msg">
+          No anomalies detected. Stream is healthy.
+        </div>
       </div>
     </div>
   </div>
 </div>
 
 <script>
-const BACKEND_HTTP = "http://localhost:8000";
-const BACKEND_WS = "ws://localhost:8000/ws/telemetry";
-const MAX_POINTS = 40;
+const BACKEND = 'http://localhost:8000';
+const MAX_POINTS = 60;
 
-const chartDefaults = {
-  responsive: true,
-  animation: false,
-  plugins: { legend: { display: false } },
+// --- Charts ---
+const chartOpts = (min, max) => ({
+  responsive: true, maintainAspectRatio: false, animation: false,
   scales: {
     x: { display: false },
-    y: { ticks: { color: "#8b98a5" }, grid: { color: "#1f2a37" } }
-  }
-};
-
-function makeLineChart(ctx, color, label) {
-  return new Chart(ctx, {
-    type: "line",
-    data: { labels: [], datasets: [{ label, data: [], borderColor: color, borderWidth: 2, pointRadius: 0, tension: 0.3 }] },
-    options: chartDefaults
-  });
-}
-
-const batteryChart = makeLineChart(document.getElementById("batteryChart"), "#4da3ff", "Battery");
-const tiltChart = makeLineChart(document.getElementById("tiltChart"), "#ffb84d", "Tilt");
-const commsChart = makeLineChart(document.getElementById("commsChart"), "#33d17a", "Comms");
-
-const motorCtx = document.getElementById("motorChart");
-const motorChart = new Chart(motorCtx, {
-  type: "line",
-  data: {
-    labels: [],
-    datasets: [
-      { label: "front_left", data: [], borderColor: "#ff5d5d", borderWidth: 2, pointRadius: 0, tension: 0.3 },
-      { label: "front_right", data: [], borderColor: "#4da3ff", borderWidth: 2, pointRadius: 0, tension: 0.3 },
-      { label: "rear_left", data: [], borderColor: "#33d17a", borderWidth: 2, pointRadius: 0, tension: 0.3 },
-      { label: "rear_right", data: [], borderColor: "#ffb84d", borderWidth: 2, pointRadius: 0, tension: 0.3 },
-    ]
+    y: { min, max, ticks: { color: '#94a3b8' }, grid: { color: '#1e293b' } },
   },
-  options: { ...chartDefaults, plugins: { legend: { display: true, labels: { color: "#8b98a5", boxWidth: 10, font: { size: 10 } } } } }
+  plugins: { legend: { labels: { color: '#94a3b8', boxWidth: 12 } } },
 });
 
-function pushPoint(chart, datasetIndex, tick, value) {
-  const ds = chart.data.datasets[datasetIndex];
-  chart.data.labels.push(tick);
-  ds.data.push(value);
-  if (ds.data.length > MAX_POINTS) {
-    ds.data.shift();
-    if (datasetIndex === 0) chart.data.labels.shift();
+const mkDS = (label, color) => ({ label, data: [], borderColor: color, borderWidth: 2, pointRadius: 0, tension: 0.3 });
+
+const batChart = new Chart(document.getElementById('c-bat'), {
+  type: 'line', data: { labels: [], datasets: [mkDS('Battery %', '#10b981')] }, options: chartOpts(0, 100),
+});
+const motChart = new Chart(document.getElementById('c-mot'), {
+  type: 'line', data: { labels: [], datasets: [
+    mkDS('FL', '#ef4444'), mkDS('FR', '#f97316'), mkDS('RL', '#eab308'), mkDS('RR', '#3b82f6'),
+  ]}, options: chartOpts(20, 80),
+});
+const comChart = new Chart(document.getElementById('c-com'), {
+  type: 'line', data: { labels: [], datasets: [mkDS('Signal', '#3b82f6')] }, options: chartOpts(0, 100),
+});
+const tltChart = new Chart(document.getElementById('c-tlt'), {
+  type: 'line', data: { labels: [], datasets: [mkDS('Tilt °', '#a855f7')] }, options: chartOpts(-45, 45),
+});
+
+// --- WebSocket and Alerts ---
+function addAlertToFeed(alert) {
+  const noMsg = document.getElementById('no-alerts-msg');
+  if (noMsg) noMsg.remove();
+
+  const alertList = document.getElementById('alert-list');
+  
+  // limit feed length to 30 visible items
+  if (alertList.children.length > 30) {
+    alertList.removeChild(alertList.lastChild);
   }
-  chart.update("none");
+
+  const timeStr = new Date(alert.timestamp * 1000).toLocaleTimeString();
+  const card = document.createElement('div');
+  card.className = 'alert-card';
+  card.innerHTML = `
+    <div class="alert-desc">
+      <span class="alert-title">⚠ ANOMALY DETECTED</span>
+      <span class="alert-msg">${alert.message}</span>
+    </div>
+    <div class="alert-meta">
+      <div><b>Score:</b> ${alert.anomaly_score}</div>
+      <div style="color: var(--muted);">${timeStr}</div>
+    </div>
+  `;
+  
+  // prepend to top of list
+  alertList.insertBefore(card, alertList.firstChild);
 }
 
+async function loadRecentAlerts() {
+  try {
+    const res = await fetch(`${BACKEND}/api/mission_log`);
+    if (res.ok) {
+      const data = await res.json();
+      const list = data.entries || [];
+      // Re-map format for feed display
+      const mapped = list.map(l => ({
+        timestamp: l.timestamp,
+        message: `Tick ${l.tick}: Anomaly detected via ${l.detected_by} on ${l.top_contributing_features[0]?.feature || 'general'}`,
+        anomaly_score: l.anomaly_score
+      }));
+      // Reverse to add oldest first so newest ends up at the top
+      mapped.reverse().forEach(addAlertToFeed);
+    }
+  } catch (e) {
+    console.error('Failed to load recent alerts:', e);
+  }
+}
+
+document.getElementById('clear-alerts-btn').addEventListener('click', () => {
+  const alertList = document.getElementById('alert-list');
+  alertList.innerHTML = `
+    <div style="color: var(--muted); font-size: 0.9rem; text-align: center; margin-top: 1rem;" id="no-alerts-msg">
+      No anomalies detected. Stream is healthy.
+    </div>
+  `;
+});
+
+// --- Agent Functions ---
 let chatHistory = [];
 
 async function checkAgentStatus() {
   try {
-    const res = await fetch(`${BACKEND_HTTP}/api/status`);
+    const res = await fetch(`${BACKEND}/api/status`);
     if (res.ok) {
       const data = await res.json();
       const statusEl = document.getElementById("agentStatus");
       if (data.agent_available) {
         statusEl.textContent = "● ONLINE";
-        statusEl.style.color = "var(--ok)";
+        statusEl.style.color = "var(--success)";
       } else {
         statusEl.textContent = "● OFFLINE (FALLBACK ACTIVE)";
         statusEl.style.color = "var(--danger)";
@@ -382,7 +491,7 @@ async function checkAgentStatus() {
 
 async function loadDecisions() {
   try {
-    const res = await fetch(`${BACKEND_HTTP}/api/agent/decisions`);
+    const res = await fetch(`${BACKEND}/api/agent/decisions`);
     if (res.ok) {
       const data = await res.json();
       const listEl = document.getElementById("decisionsList");
@@ -424,7 +533,7 @@ async function loadDecisions() {
             ${dec.anomaly.message}
           </div>
           ${stepsHtml}
-          <div style="border-top: 1px solid var(--border); padding-top: 6px; margin-top: 6px; color: var(--ok);">
+          <div style="border-top: 1px solid var(--border); padding-top: 6px; margin-top: 6px; color: var(--success);">
             <b>Agent Diagnosis:</b> ${dec.explanation}
           </div>
         `;
@@ -449,7 +558,7 @@ async function sendChatMessage() {
   if (chatHistory.length > 10) chatHistory.shift();
 
   try {
-    const res = await fetch(`${BACKEND_HTTP}/api/agent/chat`, {
+    const res = await fetch(`${BACKEND}/api/agent/chat`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message: text, history: chatHistory })
@@ -474,7 +583,7 @@ function appendChatBubble(sender, text, toolsCalled = []) {
   
   let toolsHtml = "";
   if (toolsCalled && toolsCalled.length > 0) {
-    toolsHtml = `<div class="tool-calls-span">🛠 Tools used: ${toolsCalled.map(t => `<span class="tool-tag">${t}</span>`).join(" ")}</div>`;
+    toolsHtml = `<div class="tool-calls-span" style="margin-top: 4px;">🛠 Tools used: ${toolsCalled.map(t => `<span class="tool-tag">${t}</span>`).join(" ")}</div>`;
   }
 
   bubble.innerHTML = `
@@ -486,91 +595,109 @@ function appendChatBubble(sender, text, toolsCalled = []) {
 }
 
 function connect() {
-  const ws = new WebSocket(BACKEND_WS);
+  const ws = new WebSocket('ws://localhost:8000/ws/telemetry');
 
   ws.onopen = () => {
-    document.getElementById("statusDot").classList.add("connected");
-    document.getElementById("statusText").textContent = "Connected — live telemetry streaming";
+    document.getElementById('dot').classList.add('ok');
+    document.getElementById('conn-text').textContent = 'Live Stream Active';
     checkAgentStatus();
     loadDecisions();
+    loadRecentAlerts();
   };
 
   ws.onclose = () => {
-    document.getElementById("statusDot").classList.remove("connected");
-    document.getElementById("statusText").textContent = "Disconnected — retrying in 2s...";
-    setTimeout(connect, 2000);
+    document.getElementById('dot').classList.remove('ok');
+    document.getElementById('conn-text').textContent = 'Reconnecting…';
+    setTimeout(connect, 3000);
   };
 
-  ws.onerror = () => ws.close();
+  ws.onmessage = (ev) => {
+    const d = JSON.parse(ev.data);
+    const tick = d.tick;
 
-  ws.onmessage = (event) => {
-    const d = JSON.parse(event.data);
+    // Push data
+    push(batChart, tick, [d.battery_pct]);
+    push(motChart, tick, [
+      d.motor_temp.front_left, d.motor_temp.front_right,
+      d.motor_temp.rear_left, d.motor_temp.rear_right,
+    ]);
+    push(comChart, tick, [d.comms_signal]);
+    push(tltChart, tick, [d.tilt_deg]);
 
-    document.getElementById("batteryStat").textContent = d.battery_pct + "%";
-    document.getElementById("tiltStat").textContent = d.tilt_deg + "°";
-    document.getElementById("commsStat").textContent = d.comms_signal + "%";
-    document.getElementById("motorStat").textContent =
-      Object.entries(d.motor_temp).map(([k, v]) => `${k}: ${v}°C`).join(" · ");
+    // Update values
+    document.getElementById('v-bat').textContent = d.battery_pct.toFixed(1) + '%';
+    document.getElementById('v-com').textContent = d.comms_signal.toFixed(1) + '%';
+    document.getElementById('v-tlt').textContent = d.tilt_deg.toFixed(1) + '°';
 
-    // System mode display color coding
-    const modeEl = document.getElementById("modeText");
-    modeEl.textContent = d.mode;
-    if (d.mode === "HIBERNATION") {
-      modeEl.style.color = "var(--danger)";
-    } else if (d.mode === "COOL_DOWN") {
-      modeEl.style.color = "#ffb84d";
+    // Update Mode Badge
+    const badge = document.getElementById('mode-badge');
+    if (d.mode === 'HIBERNATION') {
+      badge.textContent = '🔌 HIBERNATION MODE';
+      badge.style.background = 'rgba(239, 68, 68, 0.1)';
+      badge.style.borderColor = 'var(--danger)';
+      badge.style.color = 'var(--danger)';
+    } else if (d.mode === 'COOL_DOWN') {
+      badge.textContent = '❄ COOL-DOWN MODE';
+      badge.style.background = 'rgba(245, 158, 11, 0.1)';
+      badge.style.borderColor = 'var(--warning)';
+      badge.style.color = 'var(--warning)';
+    } else if (d.mode === 'SAFE_MODE') {
+      badge.textContent = '🛡 SAFE MODE';
+      badge.style.background = 'rgba(59, 130, 246, 0.1)';
+      badge.style.borderColor = 'var(--accent)';
+      badge.style.color = 'var(--accent)';
     } else {
-      modeEl.style.color = "var(--ok)";
+      badge.textContent = '🤖 NOMINAL MODE';
+      badge.style.background = 'rgba(16, 185, 129, 0.1)';
+      badge.style.borderColor = 'var(--success)';
+      badge.style.color = 'var(--success)';
     }
 
-    pushPoint(batteryChart, 0, d.tick, d.battery_pct);
-    pushPoint(tiltChart, 0, d.tick, d.tilt_deg);
-    pushPoint(commsChart, 0, d.tick, d.comms_signal);
-
-    const wheels = ["front_left", "front_right", "rear_left", "rear_right"];
-    motorChart.data.labels.push(d.tick);
-    if (motorChart.data.labels.length > MAX_POINTS) motorChart.data.labels.shift();
-    wheels.forEach((wheel, i) => {
-      const ds = motorChart.data.datasets[i];
-      ds.data.push(d.motor_temp[wheel]);
-      if (ds.data.length > MAX_POINTS) ds.data.shift();
-    });
-    motorChart.update("none");
-
-    // Real anomaly detection result from the backend's Isolation Forest + z-score model
+    // Alerts processing
     if (d.anomaly && d.anomaly.is_anomaly) {
       const topFeature = d.anomaly.top_contributing_features[0];
       const detail = topFeature
         ? `${topFeature.feature} (z=${topFeature.z_score})`
-        : "unspecified";
-      addAlert(`Tick ${d.tick}: anomaly detected via ${d.anomaly.detected_by} — ${detail}`);
-      
-      // Delay to let background agent thread execute and save its decision log entry
+        : 'unspecified';
+      addAlertToFeed({
+        timestamp: d.timestamp,
+        message: `Tick ${d.tick}: Anomaly detected via ${d.anomaly.detected_by} — ${detail}`,
+        anomaly_score: d.anomaly.anomaly_score
+      });
       setTimeout(loadDecisions, 2500);
+    }
+
+    // Fault banner
+    const banner = document.getElementById('fault-banner');
+    if (d.active_fault_count > 0 || (d.anomaly && d.anomaly.is_anomaly)) {
+      banner.classList.add('show');
+    } else {
+      banner.classList.remove('show');
     }
   };
 }
 
-function addAlert(msg) {
-  const feed = document.getElementById("alertFeed");
-  const item = document.createElement("div");
-  item.className = "alert-item";
-  item.textContent = msg;
-  feed.prepend(item);
-  while (feed.children.length > 8) feed.removeChild(feed.lastChild);
+function push(chart, label, values) {
+  chart.data.labels.push(label);
+  values.forEach((v, i) => chart.data.datasets[i].data.push(v));
+  if (chart.data.labels.length > MAX_POINTS) {
+    chart.data.labels.shift();
+    chart.data.datasets.forEach(ds => ds.data.shift());
+  }
+  chart.update();
 }
 
-async function injectFault(fault_type, target) {
-  await fetch(`${BACKEND_HTTP}/api/inject_fault`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ fault_type, target, magnitude: 1.5, duration_ticks: 15 })
-  });
-  addAlert(`Injected fault: ${fault_type} (${target})`);
+// --- Fault Injection ---
+async function inject(type, target, mag) {
+  try {
+    await fetch(`${BACKEND}/api/inject_fault`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fault_type: type, target, magnitude: mag, duration_ticks: 20 }),
+    });
+  } catch (e) { console.error('Inject failed:', e); }
 }
 
 connect();
-// Periodic status check
 setInterval(checkAgentStatus, 10000);
 </script>
 </body>

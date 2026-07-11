@@ -42,7 +42,7 @@ class RoverTelemetry:
         self.position = {"x": 0.0, "y": 0.0}
         self.tick = 0
         self.active_faults: list[Fault] = []
-        self.mode = "NOMINAL"  # "NOMINAL" | "COOL_DOWN" | "HIBERNATION" | "SAFE_MODE"
+        self.mode = "NOMINAL"  # "NOMINAL" | "COOL_DOWN" | "HIBERNATION"
 
     def inject_fault(self, fault_type: str, target: str = "general",
                       magnitude: float = 1.0, duration_ticks: int = 20):
@@ -60,8 +60,10 @@ class RoverTelemetry:
                 self.motor_temp[wheel] += 4.0 * fault.magnitude
             elif fault.fault_type == "battery_drain":
                 self.battery_pct -= 0.8 * fault.magnitude
+                self.battery_pct = max(0.0, self.battery_pct)
             elif fault.fault_type == "comms_dropout":
                 self.comms_signal -= 15.0 * fault.magnitude
+                self.comms_signal = max(0.0, self.comms_signal)  # signal can't go negative
             elif fault.fault_type == "tilt_spike":
                 self.tilt_deg += 6.0 * fault.magnitude
 
@@ -75,12 +77,10 @@ class RoverTelemetry:
         if self.mode != "HIBERNATION":
             self.battery_pct -= random.uniform(0.01, 0.05)
         else:
-            # Conserve power during hibernation
             self.battery_pct -= random.uniform(0.001, 0.003)
         self.battery_pct = max(0.0, min(100.0, self.battery_pct))
 
         for wheel in self.motor_temp:
-            # if cool down mode is active, temp drops faster toward baseline
             pull_rate = 0.20 if self.mode == "COOL_DOWN" else 0.05
             baseline_pull = (35.0 - self.motor_temp[wheel]) * pull_rate
             self.motor_temp[wheel] += baseline_pull + random.uniform(-0.3, 0.3)

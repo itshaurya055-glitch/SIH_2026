@@ -20,17 +20,12 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from collections import deque
 from telemetry import RoverTelemetry
 from dem_processor import DEMProcessor
 from pathfinding import astar_path
 from anomaly_detector import AnomalyDetector
 
 app = FastAPI(title="Mission Copilot - Telemetry Service")
-
-detector = AnomalyDetector()
-recent_alerts = deque(maxlen=50)
-
 
 # Path to the DEM file. In Docker this is mounted from ./data on the host.
 # Falls back to the synthetic test DEM if no real file is present, so the
@@ -43,6 +38,8 @@ GRID_SIZE = int(os.environ.get("GRID_SIZE", "128"))
 active_dem_path = DEM_PATH if os.path.exists(DEM_PATH) else FALLBACK_DEM_PATH
 dem = DEMProcessor(active_dem_path, grid_size=GRID_SIZE)
 print(f"[startup] Loaded DEM from: {active_dem_path} (grid {GRID_SIZE}x{GRID_SIZE})")
+
+anomaly_detector = AnomalyDetector()  # trains on first run, loads cached model after
 
 # Allow the frontend (running on a different port/origin during dev) to connect
 app.add_middleware(
@@ -60,6 +57,12 @@ rover.path_index = 0        # progress along active_path
 # Track connected websocket clients so the fault-injection endpoint
 # doesn't need its own connection
 connected_clients: list[WebSocket] = []
+
+# Simple in-memory log of detected anomalies. This is what the Week 4 AI
+# agent will query ("what happened at 14:02?") instead of hallucinating -
+# every alert here is a real detection event, not a guess.
+mission_log: list[dict] = []
+MAX_LOG_ENTRIES = 200
 
 
 class FaultRequest(BaseModel):
@@ -114,6 +117,13 @@ async def compute_path(req: PathRequest):
     return {"waypoint_count": len(path), "path": rover.active_path}
 
 
+@app.get("/api/mission_log")
+async def get_mission_log(limit: int = 50):
+    """Recent detected anomalies, most recent first. Used by the dashboard's
+    alert feed and (Week 4) the AI agent's explanation tool."""
+    return {"entries": mission_log[-limit:][::-1]}
+
+
 @app.post("/api/inject_fault")
 async def inject_fault(req: FaultRequest):
     rover.inject_fault(
@@ -125,22 +135,15 @@ async def inject_fault(req: FaultRequest):
     return {"ok": True, "message": f"Injected {req.fault_type} on {req.target}"}
 
 
-@app.get("/api/alerts")
-async def get_alerts():
-    return list(recent_alerts)
-
-
 def _advance_along_path():
     """Move the rover one step along its active A* path (if any), and set
     its tilt telemetry to the REAL slope at that grid cell from the DEM -
     this is what makes tilt readings meaningful instead of random noise."""
     if rover.active_path and rover.path_index < len(rover.active_path) - 1:
-        # If cool down is active, only advance every 3 seconds (slows down traversal)
         if rover.mode == "COOL_DOWN" and rover.tick % 3 != 0:
-            pass
-        # If hibernating, halt the rover completely
+            pass  # slow to 1/3 speed
         elif rover.mode == "HIBERNATION":
-            pass
+            pass  # halt completely
         else:
             rover.path_index += 1
             row, col = rover.active_path[rover.path_index]
@@ -166,31 +169,45 @@ async def telemetry_stream(websocket: WebSocket):
                 "index": rover.path_index,
                 "total": len(rover.active_path),
             }
-            
-            # Check for anomalies using the trained model
-            alerts = detector.check(reading)
-            reading["alerts"] = alerts
-            
-            # Determine operating mode based on detected anomalies (FDIR - Fault Detection, Isolation, and Recovery)
-            has_motor_anomaly = any("motor" in a["sensor"] for a in alerts)
-            has_battery_anomaly = any("battery" in a["sensor"] for a in alerts)
-            
-            if has_battery_anomaly:
-                rover.mode = "HIBERNATION"
-            elif has_motor_anomaly:
-                rover.mode = "COOL_DOWN"
+
+            anomaly_result = anomaly_detector.detect(reading)
+            reading["anomaly"] = anomaly_result
+
+            # FDIR: set rover mode based on what the detector found
+            if anomaly_result["is_anomaly"]:
+                top_features = [f["feature"] for f in anomaly_result["top_contributing_features"]]
+                has_battery = any("battery" in f for f in top_features)
+                has_motor = any("motor" in f for f in top_features)
+
+                if has_battery:
+                    rover.mode = "HIBERNATION"
+                elif has_motor:
+                    rover.mode = "COOL_DOWN"
             else:
-                # Recover back to NOMINAL mode when active faults clear
                 if len(rover.active_faults) == 0:
                     rover.mode = "NOMINAL"
-            
-            # Ensure the reading payload contains the updated mode
+
             reading["mode"] = rover.mode
-            
-            # Store in backend history
-            for alert in alerts:
-                recent_alerts.appendleft(alert)
-                
+
+            if anomaly_result["is_anomaly"]:
+                log_entry = {
+                    "tick": reading["tick"],
+                    "timestamp": reading["timestamp"],
+                    "anomaly_score": anomaly_result["anomaly_score"],
+                    "detected_by": anomaly_result["detected_by"],
+                    "top_contributing_features": anomaly_result["top_contributing_features"],
+                    "mode": rover.mode,
+                    "snapshot": {
+                        "battery_pct": reading["battery_pct"],
+                        "motor_temp": reading["motor_temp"],
+                        "tilt_deg": reading["tilt_deg"],
+                        "comms_signal": reading["comms_signal"],
+                    },
+                }
+                mission_log.append(log_entry)
+                if len(mission_log) > MAX_LOG_ENTRIES:
+                    mission_log.pop(0)
+
             await websocket.send_text(json.dumps(reading))
             await asyncio.sleep(1.0)  # 1 reading per second
     except WebSocketDisconnect:

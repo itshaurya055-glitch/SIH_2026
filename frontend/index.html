@@ -469,6 +469,7 @@ document.getElementById('clear-alerts-btn').addEventListener('click', () => {
 
 // --- Agent Functions ---
 let chatHistory = [];
+let uiIsAnomalous = false;
 
 async function checkAgentStatus() {
   try {
@@ -655,16 +656,21 @@ function connect() {
 
     // Alerts processing
     if (d.anomaly && d.anomaly.is_anomaly) {
-      const topFeature = d.anomaly.top_contributing_features[0];
-      const detail = topFeature
-        ? `${topFeature.feature} (z=${topFeature.z_score})`
-        : 'unspecified';
-      addAlertToFeed({
-        timestamp: d.timestamp,
-        message: `Tick ${d.tick}: Anomaly detected via ${d.anomaly.detected_by} — ${detail}`,
-        anomaly_score: d.anomaly.anomaly_score
-      });
-      setTimeout(loadDecisions, 2500);
+      if (!uiIsAnomalous) {
+        uiIsAnomalous = true;
+        const topFeature = d.anomaly.top_contributing_features[0];
+        const detail = topFeature
+          ? `${topFeature.feature} (z=${topFeature.z_score})`
+          : 'unspecified';
+        addAlertToFeed({
+          timestamp: d.timestamp,
+          message: `Tick ${d.tick}: Anomaly detected via ${d.anomaly.detected_by} — ${detail}`,
+          anomaly_score: d.anomaly.anomaly_score
+        });
+        setTimeout(loadDecisions, 2500);
+      }
+    } else {
+      uiIsAnomalous = false;
     }
 
     // Fault banner

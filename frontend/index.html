@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Mission Copilot — Telemetry Dashboard</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
 
@@ -324,7 +325,7 @@
     <!-- Comms -->
     <div class="panel">
       <div class="panel-hdr"><h2 class="panel-title">📡 Comms Signal</h2><div class="panel-val" id="v-com">--%</div></div>
-      <div class="chart-wrap"><canvas id="c-com"></canvas></div>
+      <div class="chart-wrap"><div id="c-com-3d" style="height: 250px; width: 100%; position: relative; overflow: hidden; border-radius: 8px;"></div></div>
     </div>
 
     <!-- Tilt -->
@@ -401,12 +402,216 @@ const motChart = new Chart(document.getElementById('c-mot'), {
     mkDS('FL', '#ef4444'), mkDS('FR', '#f97316'), mkDS('RL', '#eab308'), mkDS('RR', '#3b82f6'),
   ]}, options: chartOpts(20, 80),
 });
-const comChart = new Chart(document.getElementById('c-com'), {
-  type: 'line', data: { labels: [], datasets: [mkDS('Signal', '#3b82f6')] }, options: chartOpts(0, 100),
-});
 const tltChart = new Chart(document.getElementById('c-tlt'), {
   type: 'line', data: { labels: [], datasets: [mkDS('Tilt °', '#a855f7')] }, options: chartOpts(-45, 45),
 });
+
+// --- 3D Earth & Satellite Visualization (Comms HUD) ---
+let comms3D = {
+  renderer: null, scene: null, camera: null,
+  earth: null, satellite: null, satellitePivot: null,
+  signalBeam: null, targetSignalColor: 0x3b82f6,
+  currentCommsSignal: 100
+};
+
+function initComms3D() {
+  const container = document.getElementById('c-com-3d');
+  if (!container) return;
+
+  const w = container.clientWidth;
+  const h = container.clientHeight || 250;
+
+  // Scene
+  comms3D.scene = new THREE.Scene();
+  comms3D.scene.background = new THREE.Color(0x151b2b); // Matches var(--panel)
+
+  // Camera
+  comms3D.camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 100);
+  comms3D.camera.position.set(0, 0, 13);
+
+  // Renderer
+  comms3D.renderer = new THREE.WebGLRenderer({ antialias: true });
+  comms3D.renderer.setSize(w, h);
+  container.appendChild(comms3D.renderer.domElement);
+
+  // Lights
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+  comms3D.scene.add(ambientLight);
+
+  const dirLight = new THREE.DirectionalLight(0x3b82f6, 1.5);
+  dirLight.position.set(5, 5, 5);
+  comms3D.scene.add(dirLight);
+
+  const targetLight = new THREE.DirectionalLight(0x8b5cf6, 1.0);
+  targetLight.position.set(-5, -5, -3);
+  comms3D.scene.add(targetLight);
+
+  // Earth Globe (Procedural sci-fi hologram)
+  // Inner solid core
+  const coreGeo = new THREE.SphereGeometry(2.5, 32, 32);
+  const coreMat = new THREE.MeshBasicMaterial({
+    color: 0x0f172a,
+    transparent: true,
+    opacity: 0.8
+  });
+  const innerCore = new THREE.Mesh(coreGeo, coreMat);
+  comms3D.scene.add(innerCore);
+
+  // Outer wireframe grid sphere
+  const earthGeo = new THREE.SphereGeometry(2.55, 24, 24);
+  const earthMat = new THREE.MeshBasicMaterial({
+    color: 0x1e293b,
+    wireframe: true,
+    transparent: true,
+    opacity: 0.4
+  });
+  comms3D.earth = new THREE.Mesh(earthGeo, earthMat);
+  comms3D.scene.add(comms3D.earth);
+
+  // Latitude and Longitude glowing rings
+  const ringGeo = new THREE.TorusGeometry(2.56, 0.015, 8, 64);
+  const ringMat = new THREE.MeshBasicMaterial({
+    color: 0x3b82f6,
+    transparent: true,
+    opacity: 0.7
+  });
+  
+  // Equator ring
+  const equator = new THREE.Mesh(ringGeo, ringMat);
+  equator.rotation.x = Math.PI / 2;
+  comms3D.earth.add(equator);
+
+  // Prime meridian ring
+  const meridian = new THREE.Mesh(ringGeo, ringMat);
+  meridian.rotation.y = Math.PI / 2;
+  comms3D.earth.add(meridian);
+
+  // Orbit Line Track
+  const orbitRadius = 5.2;
+  const orbitGeo = new THREE.RingGeometry(orbitRadius - 0.02, orbitRadius + 0.02, 64);
+  const orbitMat = new THREE.MeshBasicMaterial({
+    color: 0x1e293b,
+    side: THREE.DoubleSide,
+    transparent: true,
+    opacity: 0.3
+  });
+  const orbitLine = new THREE.Mesh(orbitGeo, orbitMat);
+  orbitLine.rotation.x = Math.PI / 2.3; // slightly tilted orbit
+  comms3D.scene.add(orbitLine);
+
+  // Satellite Pivot Parent
+  comms3D.satellitePivot = new THREE.Group();
+  comms3D.satellitePivot.rotation.x = Math.PI / 2.3;
+  comms3D.scene.add(comms3D.satellitePivot);
+
+  // Satellite Mesh (Gold box body + solar wings + antenna cone)
+  comms3D.satellite = new THREE.Group();
+  
+  // Gold body
+  const satBodyMat = new THREE.MeshStandardMaterial({ color: 0xc9a84c, metalness: 0.8, roughness: 0.2 });
+  const satBody = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.3, 0.4), satBodyMat);
+  comms3D.satellite.add(satBody);
+
+  // Solar panels (wings)
+  const panelMat = new THREE.MeshStandardMaterial({ color: 0x1e3a8a, metalness: 0.5, roughness: 0.3 });
+  const solarPanelGeo = new THREE.BoxGeometry(0.8, 0.02, 0.25);
+  const wingLeft = new THREE.Mesh(solarPanelGeo, panelMat);
+  wingLeft.position.set(0.55, 0, 0);
+  comms3D.satellite.add(wingLeft);
+
+  const wingRight = new THREE.Mesh(solarPanelGeo, panelMat);
+  wingRight.position.set(-0.55, 0, 0);
+  comms3D.satellite.add(wingRight);
+
+  // Antenna dish pointing to earth
+  const antMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, metalness: 0.6 });
+  const antCone = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.2, 8), antMat);
+  antCone.position.set(0, -0.22, 0);
+  antCone.rotation.x = Math.PI; // point antenna down
+  comms3D.satellite.add(antCone);
+
+  // Put satellite at orbit radius
+  comms3D.satellite.position.set(0, orbitRadius, 0);
+  comms3D.satellitePivot.add(comms3D.satellite);
+
+  // Dynamic Signal Beam
+  const beamMat = new THREE.LineDashedMaterial({
+    color: 0x10b981,
+    dashSize: 0.2,
+    gapSize: 0.1,
+    transparent: true,
+    opacity: 0.8
+  });
+  
+  const beamGeo = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(0, 0, 0),
+    new THREE.Vector3(0, 0, 0)
+  ]);
+  comms3D.signalBeam = new THREE.Line(beamGeo, beamMat);
+  comms3D.scene.add(comms3D.signalBeam);
+
+  // Handle Resize
+  window.addEventListener('resize', () => {
+    if (!comms3D.renderer) return;
+    const newW = container.clientWidth;
+    const newH = container.clientHeight || 250;
+    comms3D.camera.aspect = newW / newH;
+    comms3D.camera.updateProjectionMatrix();
+    comms3D.renderer.setSize(newW, newH);
+  });
+
+  // Animation Loop
+  let frame = 0;
+  function animateComms() {
+    requestAnimationFrame(animateComms);
+    frame += 0.01;
+
+    // Rotate Earth
+    if (comms3D.earth) {
+      comms3D.earth.rotation.y += 0.003;
+    }
+
+    // Rotate Satellite
+    if (comms3D.satellitePivot) {
+      const speedMult = comms3D.currentCommsSignal > 20 ? 1 : 0.2;
+      comms3D.satellitePivot.rotation.z += 0.008 * speedMult;
+    }
+
+    // Update signal beam source and target
+    if (comms3D.satellite && comms3D.signalBeam) {
+      const satWorldPos = new THREE.Vector3();
+      comms3D.satellite.getWorldPosition(satWorldPos);
+
+      const earthCenter = new THREE.Vector3(0, 0, 0);
+      const points = [satWorldPos, earthCenter];
+      comms3D.signalBeam.geometry.setFromPoints(points);
+      comms3D.signalBeam.computeLineDistances();
+
+      const sig = comms3D.currentCommsSignal;
+      if (sig <= 20) {
+        comms3D.signalBeam.visible = false;
+      } else {
+        comms3D.signalBeam.visible = true;
+        if (sig <= 70) {
+          const isFlash = Math.floor(Date.now() / 150) % 2 === 0;
+          comms3D.signalBeam.material.color.setHex(isFlash ? 0xf59e0b : 0xef4444);
+          comms3D.signalBeam.material.dashSize = 0.1;
+          comms3D.signalBeam.material.gapSize = 0.2;
+        } else {
+          comms3D.signalBeam.material.color.setHex(0x10b981);
+          comms3D.signalBeam.material.dashSize = 0.25;
+          comms3D.signalBeam.material.gapSize = 0.1 + Math.sin(frame * 10) * 0.05;
+        }
+      }
+    }
+
+    if (comms3D.renderer && comms3D.scene && comms3D.camera) {
+      comms3D.renderer.render(comms3D.scene, comms3D.camera);
+    }
+  }
+
+  animateComms();
+}
 
 // --- WebSocket and Alerts ---
 function addAlertToFeed(alert) {
@@ -622,7 +827,7 @@ function connect() {
       d.motor_temp.front_left, d.motor_temp.front_right,
       d.motor_temp.rear_left, d.motor_temp.rear_right,
     ]);
-    push(comChart, tick, [d.comms_signal]);
+    comms3D.currentCommsSignal = d.comms_signal;
     push(tltChart, tick, [d.tilt_deg]);
 
     // Update values
@@ -703,6 +908,7 @@ async function inject(type, target, mag) {
   } catch (e) { console.error('Inject failed:', e); }
 }
 
+initComms3D();
 connect();
 setInterval(checkAgentStatus, 10000);
 </script>

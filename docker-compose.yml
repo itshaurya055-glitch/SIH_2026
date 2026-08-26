@@ -11,7 +11,7 @@ services:
     environment:
       - DEM_PATH=/app/data/dem.tif
       - GRID_SIZE=128
-      - NVIDIA_API_KEY=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
+      - NVIDIA_API_KEY=${NVIDIA_API_KEY}
     restart: unless-stopped
 
   frontend:

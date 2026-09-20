@@ -15,7 +15,7 @@ except ImportError:
     pass  # python-dotenv not installed; rely on system env vars
 
 # Default fallback API key if not in environment
-DEFAULT_KEY = "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"
+DEFAULT_KEY = "YOUR KEY"
 
 
 def _sanitize(obj):

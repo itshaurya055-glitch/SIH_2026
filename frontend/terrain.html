@@ -2,30 +2,48 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Mission Copilot - Terrain View (Week 2)</title>
+<title>Mission Copilot - Terrain View</title>
 <style>
   html, body { margin: 0; height: 100%; background: #05070a; overflow: hidden; font-family: -apple-system, "Segoe UI", Roboto, sans-serif; }
   #canvas-container { width: 100vw; height: 100vh; }
   #hud {
     position: fixed; top: 16px; left: 16px; z-index: 10;
-    background: rgba(10,14,20,0.85); border: 1px solid #1f2a37; border-radius: 10px;
-    padding: 14px 16px; color: #e6edf3; font-size: 13px; min-width: 260px;
-    backdrop-filter: blur(6px);
+    background: rgba(10,14,20,0.88); border: 1px solid #1f2a37; border-radius: 10px;
+    padding: 14px 16px; color: #e6edf3; font-size: 13px; min-width: 270px;
+    backdrop-filter: blur(8px);
   }
-  #hud h1 { font-size: 15px; margin: 0 0 8px 0; }
-  #hud .row { display: flex; justify-content: space-between; margin: 4px 0; color: #b7c2cd; }
+  #hud h1 { font-size: 15px; margin: 0 0 8px 0; letter-spacing: 0.02em; }
+  #hud .section-label {
+    font-size: 10px; font-weight: 700; letter-spacing: 0.12em;
+    color: #4a5a6a; text-transform: uppercase; margin: 8px 0 3px 0;
+  }
+  #hud .row { display: flex; justify-content: space-between; margin: 3px 0; color: #b7c2cd; }
   #hud .row b { color: #e6edf3; font-weight: 600; }
-  #hud .hint { margin-top: 10px; color: #6b7785; font-size: 12px; line-height: 1.4; }
+  #hud .hint { margin-top: 10px; color: #4a5a6a; font-size: 11px; line-height: 1.5; border-top: 1px solid #1a2535; padding-top: 8px; }
   #status-dot {
     display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-    background: #ff5d5d; margin-right: 6px;
+    background: #ff5d5d; margin-right: 6px; transition: background 0.3s;
   }
   #status-dot.connected { background: #33d17a; }
   button {
     background: #1a2432; color: #e6edf3; border: 1px solid #1f2a37;
     padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; margin-top: 8px;
+    transition: border-color 0.15s;
   }
   button:hover { border-color: #4da3ff; }
+  .overlay-badge {
+    display: inline-block; padding: 1px 6px; border-radius: 4px;
+    font-size: 10px; font-weight: 700; margin-left: 4px;
+    background: #1a2a3a; color: #4da3ff; border: 1px solid #1f3550;
+  }
+  /* Slip bar */
+  .slip-bar-bg {
+    width: 100%; height: 5px; background: #1a2432; border-radius: 3px; margin-top: 4px; overflow: hidden;
+  }
+  .slip-bar-fill {
+    height: 100%; border-radius: 3px; transition: width 0.4s ease, background 0.4s ease;
+    background: #33d17a; width: 0%;
+  }
 </style>
 </head>
 <body>
@@ -33,14 +51,32 @@
 <div id="hud">
   <h1>🛰 Mission Copilot — Terrain View</h1>
   <div><span id="status-dot"></span><span id="status-text">Connecting...</span></div>
+
+  <div class="section-label">Navigation</div>
   <div class="row"><span>Grid position</span><b id="hud-pos">--</b></div>
-  <div class="row"><span>Tilt (real DEM slope)</span><b id="hud-tilt">--</b></div>
+  <div class="row"><span>Tilt (DEM slope)</span><b id="hud-tilt">--</b></div>
   <div class="row"><span>Path progress</span><b id="hud-progress">--</b></div>
-  <div class="row"><span>Anomaly status</span><b id="hud-anomaly" style="color:#33d17a">Nominal</b></div>
+
+  <div class="section-label">Lunar Physics</div>
+  <div class="row"><span>Wheel slip</span><b id="hud-slip">--</b></div>
+  <div class="slip-bar-bg"><div class="slip-bar-fill" id="hud-slip-bar"></div></div>
+  <div class="row" style="margin-top:4px"><span>Soil type</span><b id="hud-soil">--</b></div>
+  <div class="row"><span>Physics sinkage</span><b id="hud-sinkage">--</b></div>
+
+  <div class="section-label">AI Status</div>
+  <div class="row"><span>Anomaly</span><b id="hud-anomaly" style="color:#33d17a">Nominal</b></div>
   <div class="row"><span>System mode</span><b id="hud-mode" style="color:#33d17a">NOMINAL</b></div>
-  <div class="row"><span>DEM source</span><b id="hud-dem">--</b></div>
+  <div class="row"><span>RNN correction</span><b id="hud-rnn">--</b></div>
+  <div class="row"><span>RNN improvement</span><b id="hud-rnn-improve">--</b></div>
+  <div class="row"><span>DEM range</span><b id="hud-dem">--</b></div>
+
   <button id="clear-path-btn">Clear path</button>
-  <div class="hint">Click any point on the terrain to set a new goal.<br/>The rover paths there automatically, avoiding terrain too steep to climb.</div>
+  <button id="toggle-overlay-btn">Overlay: Height <span class="overlay-badge" id="overlay-badge">H</span></button>
+  <div class="hint">
+    Click terrain to set goal — rover auto-paths avoiding steep slopes &amp; soft soil.<br/>
+    Press <b>L</b> to toggle learned-cost overlay (red = harder than physics predicted).<br/>
+    Press <b>S</b> to toggle soil-type overlay.
+  </div>
 </div>
 
 <div id="canvas-container"></div>
@@ -58,17 +94,28 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
-const BACKEND_HTTP = "http://localhost:8000";
-const BACKEND_WS = "ws://localhost:8000/ws/telemetry";
-const TERRAIN_SIZE = 60;      // world-space size of the terrain plane
-const HEIGHT_SCALE = 8;       // vertical exaggeration so slopes are visible
+const BACKEND_HTTP = "http://127.0.0.1:8000";
+const BACKEND_WS   = "ws://127.0.0.1:8000/ws/telemetry";
+const TERRAIN_SIZE = 60;
+const HEIGHT_SCALE = 8;
 
 let gridSize = 128;
-let heightmapFlat = [];       // flat array, row-major
+let heightmapFlat = [];
+let slipMapFlat   = [];     // 0-1 normalised slip per cell
+let soilMapFlat   = [];     // 0/1/2 soil type index per cell
+
+// Learned correction map (updated live from telemetry)
+let learnedCorrection = new Float32Array(128 * 128).fill(0);
+
 let terrainMesh, roverMesh, pathLine;
 let currentGridPos = [0, 0];
 
-// ---------- Scene setup ----------
+// Overlay mode: "height" | "slip" | "learned" | "soil"
+let overlayMode = "height";
+const OVERLAY_LABELS = { height: "H", slip: "Slip", learned: "RNN", soil: "Soil" };
+const OVERLAY_CYCLE  = ["height", "slip", "soil", "learned"];
+
+// ---------- Scene ----------
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x05070a);
 scene.fog = new THREE.Fog(0x05070a, 40, 120);
@@ -96,34 +143,88 @@ window.addEventListener("resize", () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
-// ---------- Load real DEM terrain from backend ----------
+// ---------- Terrain overlay colour helpers ----------
+function heightColour(t) {
+  // grey lunar surface
+  const v = 0.35 + t * 0.45;
+  return new THREE.Color(v * 0.65, v * 0.62, v * 0.58);
+}
+function slipColour(t) {
+  // green → orange → red
+  if (t < 0.5) return new THREE.Color(0.1 + t * 1.0, 0.7 - t * 0.8, 0.1);
+  return new THREE.Color(0.6 + (t - 0.5) * 0.8, 0.3 - (t - 0.5) * 0.6, 0.05);
+}
+function learnedColour(t) {
+  // blue (easier than physics) → white → red (harder)
+  const c = (t + 1) / 2;  // t in [-1,1] → 0-1
+  return new THREE.Color(c, 1 - Math.abs(t) * 0.7, 1 - c);
+}
+function soilColour(idx) {
+  // 0=SOFT pale tan, 1=MEDIUM sandy, 2=FIRM dark grey
+  return [
+    new THREE.Color(0.78, 0.68, 0.52),
+    new THREE.Color(0.55, 0.50, 0.40),
+    new THREE.Color(0.30, 0.28, 0.26),
+  ][Math.max(0, Math.min(2, idx))];
+}
+
+function applyOverlayColours() {
+  if (!terrainMesh) return;
+  const geo  = terrainMesh.geometry;
+  const n    = geo.attributes.position.count;
+  const colours = new Float32Array(n * 3);
+
+  for (let i = 0; i < n; i++) {
+    let col;
+    if (overlayMode === "slip") {
+      col = slipColour(slipMapFlat[i] ?? 0);
+    } else if (overlayMode === "learned") {
+      const raw = learnedCorrection[i] ?? 0;
+      const norm = Math.max(-1, Math.min(1, raw / 3.0));
+      col = learnedColour(norm);
+    } else if (overlayMode === "soil") {
+      col = soilColour(soilMapFlat[i] ?? 1);
+    } else {
+      col = heightColour(heightmapFlat[i] ?? 0);
+    }
+    colours[i * 3]     = col.r;
+    colours[i * 3 + 1] = col.g;
+    colours[i * 3 + 2] = col.b;
+  }
+  geo.setAttribute("color", new THREE.BufferAttribute(colours, 3));
+  terrainMesh.material.vertexColors = true;
+  terrainMesh.material.color.set(0xffffff);
+  terrainMesh.material.needsUpdate = true;
+}
+
+// ---------- Load terrain ----------
 async function loadTerrain() {
-  const res = await fetch(`${BACKEND_HTTP}/api/terrain`);
+  const res  = await fetch(`${BACKEND_HTTP}/api/terrain`);
   const data = await res.json();
-  gridSize = data.grid_size;
-  heightmapFlat = data.heightmap.flat(); // normalized 0-1
+  gridSize      = data.grid_size;
+  heightmapFlat = data.heightmap.flat();
+  slipMapFlat   = data.slip_map ? data.slip_map.flat() : [];
+  soilMapFlat   = data.soil_map ? data.soil_map.flat() : [];
+
+  learnedCorrection = new Float32Array(heightmapFlat.length).fill(0);
 
   document.getElementById("hud-dem").textContent =
-    `${data.elevation_min_m.toFixed(0)}m to ${data.elevation_max_m.toFixed(0)}m`;
+    `${data.elevation_min_m.toFixed(0)}m – ${data.elevation_max_m.toFixed(0)}m`;
 
   const geometry = new THREE.PlaneGeometry(
     TERRAIN_SIZE, TERRAIN_SIZE, gridSize - 1, gridSize - 1
   );
-  geometry.rotateX(-Math.PI / 2); // lay flat, Y becomes "up"
+  geometry.rotateX(-Math.PI / 2);
 
   const pos = geometry.attributes.position;
   for (let i = 0; i < pos.count; i++) {
-    const h = heightmapFlat[i] ?? 0;
-    pos.setY(i, h * HEIGHT_SCALE);
+    pos.setY(i, (heightmapFlat[i] ?? 0) * HEIGHT_SCALE);
   }
   geometry.computeVertexNormals();
 
   const material = new THREE.MeshStandardMaterial({
+    roughness: 1, metalness: 0, wireframe: false, vertexColors: false,
     color: 0x8a8378,
-    flatShading: false,
-    roughness: 1,
-    metalness: 0,
-    wireframe: false,
   });
 
   if (terrainMesh) scene.remove(terrainMesh);
@@ -131,35 +232,34 @@ async function loadTerrain() {
   terrainMesh.name = "terrain";
   scene.add(terrainMesh);
 
-  // simple grid helper for scale reference
   const grid = new THREE.GridHelper(TERRAIN_SIZE, 20, 0x223344, 0x152030);
   grid.position.y = -0.01;
   scene.add(grid);
+
+  applyOverlayColours();
 }
 
-// ---------- Lunar Rover Model ----------
+// ---------- Rover model ----------
 function createRover() {
   roverMesh = new THREE.Group();
-  const bodyMat = new THREE.MeshStandardMaterial({ color: 0xd4cfc8, roughness: 0.6, metalness: 0.3 });
+  const bodyMat  = new THREE.MeshStandardMaterial({ color: 0xd4cfc8, roughness: 0.6, metalness: 0.3 });
   const metalMat = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.3, metalness: 0.8 });
-  const darkMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.8, metalness: 0.2 });
-  const goldMat = new THREE.MeshStandardMaterial({ color: 0xc9a84c, roughness: 0.4, metalness: 0.7 });
+  const darkMat  = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.8, metalness: 0.2 });
+  const goldMat  = new THREE.MeshStandardMaterial({ color: 0xc9a84c, roughness: 0.4, metalness: 0.7 });
   const panelMat = new THREE.MeshStandardMaterial({ color: 0x1a2744, roughness: 0.2, metalness: 0.5 });
-  const lensMat = new THREE.MeshStandardMaterial({ color: 0x112244, roughness: 0.1, metalness: 0.9, emissive: 0x0a1530 });
+  const lensMat  = new THREE.MeshStandardMaterial({ color: 0x112244, roughness: 0.1, metalness: 0.9, emissive: 0x0a1530 });
 
-  // Chassis
   const chassis = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.35, 0.7), bodyMat);
   chassis.position.y = 0.45; roverMesh.add(chassis);
   const foil = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.04, 0.6), goldMat);
   foil.position.set(0, 0.645, 0); roverMesh.add(foil);
 
-  // Wheels
   const wheelGeo = new THREE.CylinderGeometry(0.15, 0.15, 0.08, 16);
-  const tireGeo = new THREE.TorusGeometry(0.15, 0.04, 8, 16);
+  const tireGeo  = new THREE.TorusGeometry(0.15, 0.04, 8, 16);
   function makeWheel(x, y, z) {
     const g = new THREE.Group();
-    const hub = new THREE.Mesh(wheelGeo, metalMat); hub.rotation.x = Math.PI/2; g.add(hub);
-    const tire = new THREE.Mesh(tireGeo, darkMat); tire.rotation.x = Math.PI/2; g.add(tire);
+    const hub  = new THREE.Mesh(wheelGeo, metalMat); hub.rotation.x = Math.PI/2; g.add(hub);
+    const tire = new THREE.Mesh(tireGeo,  darkMat);  tire.rotation.x = Math.PI/2; g.add(tire);
     for (let i = 0; i < 6; i++) {
       const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.02, 0.015), metalMat);
       spoke.rotation.z = (i/6)*Math.PI; g.add(spoke);
@@ -176,100 +276,92 @@ function createRover() {
   [[-0.5,wy,oz],[-0.5,wy,-oz],[0,wy,oz],[0,wy,-oz],[0.5,wy,oz],[0.5,wy,-oz]].forEach(p => roverMesh.add(makeWheel(...p)));
   [-1,1].forEach(s => { const z=s*iz;
     roverMesh.add(makeArm(-0.35,0.4,z,-0.5,wy,z)); roverMesh.add(makeArm(-0.35,0.4,z,0,wy,z));
-    roverMesh.add(makeArm(0.1,0.4,z,0,wy,z)); roverMesh.add(makeArm(0.1,0.4,z,0.5,wy,z));
+    roverMesh.add(makeArm(0.1,0.4,z,0,wy,z));  roverMesh.add(makeArm(0.1,0.4,z,0.5,wy,z));
   });
 
-  // Solar panel
   const panel = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.03, 0.9), panelMat);
   panel.position.set(-0.15, 0.85, 0); panel.rotation.z = 0.15; roverMesh.add(panel);
   const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.2, 6), metalMat);
   strut.position.set(-0.15, 0.73, 0); roverMesh.add(strut);
 
-  // Camera mast
   const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.025, 0.6, 8), metalMat);
   mast.position.set(0.35, 0.95, 0); roverMesh.add(mast);
   const camHead = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.08, 0.12), bodyMat);
   camHead.position.set(0.35, 1.28, 0); roverMesh.add(camHead);
   const lensGeo = new THREE.CylinderGeometry(0.025, 0.03, 0.04, 12);
-  const lens1 = new THREE.Mesh(lensGeo, lensMat); lens1.rotation.z = Math.PI/2; lens1.position.set(0.44, 1.28, 0.03); roverMesh.add(lens1);
-  const lens2 = new THREE.Mesh(lensGeo, lensMat); lens2.rotation.z = Math.PI/2; lens2.position.set(0.44, 1.28, -0.03); roverMesh.add(lens2);
+  [-0.03, 0.03].forEach(oz => {
+    const l = new THREE.Mesh(lensGeo, lensMat); l.rotation.z = Math.PI/2;
+    l.position.set(0.44, 1.28, oz); roverMesh.add(l);
+  });
 
-  // Antenna dish
-  const dishPts = []; for (let i=0;i<=10;i++){const t=i/10;dishPts.push(new THREE.Vector2(t*0.15,t*t*0.04));}
+  const dishPts = []; for(let i=0;i<=10;i++){const t=i/10;dishPts.push(new THREE.Vector2(t*0.15,t*t*0.04));}
   const dish = new THREE.Mesh(new THREE.LatheGeometry(dishPts, 16), metalMat);
   dish.position.set(-0.45, 0.9, 0.2); dish.rotation.set(-0.3, 0, -0.4); roverMesh.add(dish);
-  const feed = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.12, 6), metalMat);
-  feed.position.set(-0.48, 0.98, 0.22); feed.rotation.z = -0.4; roverMesh.add(feed);
 
-  // Headlights
   const lightMat = new THREE.MeshStandardMaterial({ color: 0x88ccff, emissive: 0x4488cc, emissiveIntensity: 2 });
-  const lightGeo = new THREE.SphereGeometry(0.02, 8, 8);
-  const l1 = new THREE.Mesh(lightGeo, lightMat); l1.position.set(0.52, 0.5, 0.2); roverMesh.add(l1);
-  const l2 = new THREE.Mesh(lightGeo, lightMat); l2.position.set(0.52, 0.5, -0.2); roverMesh.add(l2);
+  [-0.2, 0.2].forEach(oz => {
+    const l = new THREE.Mesh(new THREE.SphereGeometry(0.02,8,8), lightMat);
+    l.position.set(0.52, 0.5, oz); roverMesh.add(l);
+  });
 
   roverMesh.scale.set(1.2, 1.2, 1.2);
   scene.add(roverMesh);
 }
 
-// Convert grid (row, col) -> world (x, z), matching the plane's layout
+// ---------- Grid ↔ world ----------
 function gridToWorld(row, col) {
   const half = TERRAIN_SIZE / 2;
   const x = (col / (gridSize - 1)) * TERRAIN_SIZE - half;
   const z = (row / (gridSize - 1)) * TERRAIN_SIZE - half;
-  const idx = row * gridSize + col;
-  const h = (heightmapFlat[idx] ?? 0) * HEIGHT_SCALE;
+  const h = (heightmapFlat[row * gridSize + col] ?? 0) * HEIGHT_SCALE;
   return new THREE.Vector3(x, h + 0.2, z);
 }
 
 function updateRoverPosition(row, col) {
   currentGridPos = [row, col];
   if (!roverMesh) return;
-  const worldPos = gridToWorld(row, col);
-  roverMesh.position.copy(worldPos);
+  roverMesh.position.copy(gridToWorld(row, col));
 }
 
-// ---------- Path visualization ----------
+// ---------- Path ----------
 function drawPath(pathCells) {
   if (pathLine) scene.remove(pathLine);
-  const points = pathCells.map(([r, c]) => {
-    const p = gridToWorld(r, c);
-    p.y += 0.15;
-    return p;
-  });
-  const geometry = new THREE.BufferGeometry().setFromPoints(points);
-  const material = new THREE.LineBasicMaterial({ color: 0x33d17a, linewidth: 2 });
-  pathLine = new THREE.Line(geometry, material);
+  const points = pathCells.map(([r,c]) => { const p = gridToWorld(r,c); p.y += 0.15; return p; });
+  pathLine = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(points),
+    new THREE.LineBasicMaterial({ color: 0x33d17a, linewidth: 2 })
+  );
   scene.add(pathLine);
 }
 
-// ---------- Click-to-set-goal ----------
+// ---------- Click to goal ----------
 const raycaster = new THREE.Raycaster();
-const mouse = new THREE.Vector2();
-let goalMarker = null;
-let isDragging = false;
+const mouse     = new THREE.Vector2();
+let goalMarker  = null;
+let isDragging  = false;
 
 renderer.domElement.addEventListener("pointerdown", () => { isDragging = false; });
-renderer.domElement.addEventListener("pointermove", () => { isDragging = true; });
+renderer.domElement.addEventListener("pointermove", () => { isDragging = true;  });
 
 renderer.domElement.addEventListener("pointerup", async (event) => {
   if (isDragging) return;
   mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
   mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
   raycaster.setFromCamera(mouse, camera);
-
   if (!terrainMesh) return;
   const hits = raycaster.intersectObject(terrainMesh);
-  if (hits.length === 0) return;
+  if (!hits.length) return;
 
   const point = hits[0].point;
-  const half = TERRAIN_SIZE / 2;
-  const col = Math.round(((point.x + half) / TERRAIN_SIZE) * (gridSize - 1));
-  const row = Math.round(((point.z + half) / TERRAIN_SIZE) * (gridSize - 1));
+  const half  = TERRAIN_SIZE / 2;
+  const col   = Math.round(((point.x + half) / TERRAIN_SIZE) * (gridSize - 1));
+  const row   = Math.round(((point.z + half) / TERRAIN_SIZE) * (gridSize - 1));
 
   if (!goalMarker) {
-    const geo = new THREE.SphereGeometry(0.5, 16, 16);
-    const mat = new THREE.MeshStandardMaterial({ color: 0xff4444, emissive: 0x661111 });
-    goalMarker = new THREE.Mesh(geo, mat);
+    goalMarker = new THREE.Mesh(
+      new THREE.SphereGeometry(0.5, 16, 16),
+      new THREE.MeshStandardMaterial({ color: 0xff4444, emissive: 0x661111 })
+    );
     scene.add(goalMarker);
   }
   goalMarker.position.copy(point);
@@ -280,25 +372,42 @@ renderer.domElement.addEventListener("pointerup", async (event) => {
 });
 
 document.getElementById("clear-path-btn").addEventListener("click", () => {
-  if (pathLine) { scene.remove(pathLine); pathLine = null; }
-  if (goalMarker) { scene.remove(goalMarker); goalMarker = null; }
+  if (pathLine)    { scene.remove(pathLine);    pathLine    = null; }
+  if (goalMarker)  { scene.remove(goalMarker);  goalMarker  = null; }
 });
 
+// ---------- Overlay toggle ----------
+function cycleOverlay() {
+  const idx = OVERLAY_CYCLE.indexOf(overlayMode);
+  overlayMode = OVERLAY_CYCLE[(idx + 1) % OVERLAY_CYCLE.length];
+  document.getElementById("overlay-badge").textContent = OVERLAY_LABELS[overlayMode];
+  document.getElementById("toggle-overlay-btn").innerHTML =
+    `Overlay: ${overlayMode.charAt(0).toUpperCase() + overlayMode.slice(1)} <span class="overlay-badge" id="overlay-badge">${OVERLAY_LABELS[overlayMode]}</span>`;
+  applyOverlayColours();
+}
+
+document.getElementById("toggle-overlay-btn").addEventListener("click", cycleOverlay);
+window.addEventListener("keydown", (e) => {
+  if (e.key === "l" || e.key === "L") { overlayMode = "learned"; applyOverlayColours(); updateOverlayBtn(); }
+  if (e.key === "s" || e.key === "S") { overlayMode = "soil";    applyOverlayColours(); updateOverlayBtn(); }
+  if (e.key === "h" || e.key === "H") { overlayMode = "height";  applyOverlayColours(); updateOverlayBtn(); }
+});
+function updateOverlayBtn() {
+  document.getElementById("toggle-overlay-btn").innerHTML =
+    `Overlay: ${overlayMode.charAt(0).toUpperCase() + overlayMode.slice(1)} <span class="overlay-badge" id="overlay-badge">${OVERLAY_LABELS[overlayMode]}</span>`;
+}
+
+// ---------- Path request ----------
 async function requestPath(startRow, startCol, goalRow, goalCol) {
   try {
     const res = await fetch(`${BACKEND_HTTP}/api/path`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        start_row: startRow, start_col: startCol,
-        goal_row: goalRow, goal_col: goalCol,
-      }),
+      body: JSON.stringify({ start_row: startRow, start_col: startCol, goal_row: goalRow, goal_col: goalCol }),
     });
     if (!res.ok) {
-      const err = await res.json();
       document.getElementById("hud-progress").textContent = "No path found!";
-      console.warn("Path request failed:", err.detail);
-      alert("No traversable path found — that area may be too steep. Try clicking somewhere else.");
+      alert("No traversable path — area may be too steep or soft soil impassable. Try elsewhere.");
       return;
     }
     const data = await res.json();
@@ -306,12 +415,10 @@ async function requestPath(startRow, startCol, goalRow, goalCol) {
     drawPath(data.path);
   } catch (e) {
     document.getElementById("hud-progress").textContent = "Error!";
-    console.error("Path request error:", e);
-    alert("Could not reach the backend. Is it running on port 8000?");
+    alert("Could not reach backend on port 8000.");
   }
 }
 
-// ---------- Fetch Active Path ----------
 async function loadActivePath() {
   try {
     const res = await fetch(`${BACKEND_HTTP}/api/path`);
@@ -322,12 +429,28 @@ async function loadActivePath() {
         drawPath(data.path);
       }
     }
-  } catch (e) {
-    console.error("Failed to load active path on startup:", e);
-  }
+  } catch (e) { /* silent */ }
 }
 
-// ---------- WebSocket telemetry (drives rover animation) ----------
+// ---------- Periodic RNN metrics pull ----------
+async function updateRNNMetrics() {
+  try {
+    const res = await fetch(`${BACKEND_HTTP}/api/rnn/state`);
+    if (res.ok) {
+      const m = await res.json();
+      const improveEl = document.getElementById("hud-rnn-improve");
+      if (m.improvement_pct !== null) {
+        improveEl.textContent = `${m.improvement_pct > 0 ? "+" : ""}${m.improvement_pct}%`;
+        improveEl.style.color = m.improvement_pct > 5 ? "#33d17a" : m.improvement_pct > 0 ? "#ffb03a" : "#b7c2cd";
+      } else {
+        improveEl.textContent = `${m.steps} steps…`;
+      }
+    }
+  } catch (e) { /* silent */ }
+}
+setInterval(updateRNNMetrics, 5000);
+
+// ---------- WebSocket ----------
 function connectTelemetry() {
   const ws = new WebSocket(BACKEND_WS);
 
@@ -335,28 +458,73 @@ function connectTelemetry() {
     document.getElementById("status-dot").classList.add("connected");
     document.getElementById("status-text").textContent = "Live telemetry connected";
   };
-
   ws.onclose = () => {
     document.getElementById("status-dot").classList.remove("connected");
     document.getElementById("status-text").textContent = "Disconnected — retrying...";
     setTimeout(connectTelemetry, 2000);
   };
-
   ws.onerror = () => ws.close();
 
   ws.onmessage = (event) => {
     const d = JSON.parse(event.data);
+
     if (d.grid_pos) {
       updateRoverPosition(d.grid_pos[0], d.grid_pos[1]);
       document.getElementById("hud-pos").textContent = `[${d.grid_pos[0]}, ${d.grid_pos[1]}]`;
     }
     document.getElementById("hud-tilt").textContent = `${d.tilt_deg}°`;
+
     if (d.path_progress) {
       document.getElementById("hud-progress").textContent =
         `${d.path_progress.index} / ${d.path_progress.total}`;
     }
 
-    // Anomaly status
+    // Wheel slip
+    if (d.wheel_slip_pct !== undefined) {
+      const pct = d.wheel_slip_pct;
+      const slipEl  = document.getElementById("hud-slip");
+      const slipBar = document.getElementById("hud-slip-bar");
+      slipEl.textContent = `${pct.toFixed(1)}%`;
+      slipEl.style.color = pct > 40 ? "#ff5d5d" : pct > 20 ? "#ffb03a" : "#33d17a";
+      slipBar.style.width = `${Math.min(100, pct)}%`;
+      slipBar.style.background = pct > 40 ? "#ff5d5d" : pct > 20 ? "#ffb03a" : "#33d17a";
+    }
+
+    // Soil type
+    if (d.soil_type) {
+      const soilEl = document.getElementById("hud-soil");
+      soilEl.textContent = d.soil_type;
+      soilEl.style.color = d.soil_type === "SOFT" ? "#ff5d5d" : d.soil_type === "FIRM" ? "#33d17a" : "#ffb03a";
+    }
+
+    // RNN correction (live per-step)
+    if (d.rnn_correction !== undefined) {
+      const corrEl = document.getElementById("hud-rnn");
+      const corr = d.rnn_correction;
+      corrEl.textContent = `${corr >= 0 ? "+" : ""}${corr.toFixed(3)}`;
+      corrEl.style.color = corr > 0.3 ? "#ff5d5d" : corr < -0.3 ? "#4da3ff" : "#b7c2cd";
+
+      // Update learned correction map at rover cell for overlay
+      if (d.grid_pos) {
+        const [r, c] = d.grid_pos;
+        learnedCorrection[r * gridSize + c] = corr;
+        if (overlayMode === "learned") applyOverlayColours();
+      }
+    }
+
+    // Sinkage (fetch from physics endpoint lazily every 5 ticks)
+    if (d.tick && d.tick % 5 === 0 && d.grid_pos) {
+      const [r, c] = d.grid_pos;
+      fetch(`${BACKEND_HTTP}/api/terrain/physics?row=${r}&col=${c}`)
+        .then(r => r.json())
+        .then(p => {
+          const el = document.getElementById("hud-sinkage");
+          if (el && p.sinkage_cm !== undefined) el.textContent = `${p.sinkage_cm} cm`;
+        })
+        .catch(() => {});
+    }
+
+    // Anomaly
     const anomalyEl = document.getElementById("hud-anomaly");
     if (d.anomaly && d.anomaly.is_anomaly) {
       const top = d.anomaly.top_contributing_features[0];
@@ -367,20 +535,16 @@ function connectTelemetry() {
       anomalyEl.style.color = "#33d17a";
     }
 
-    // Mode status
+    // Mode
     const modeEl = document.getElementById("hud-mode");
     if (modeEl && d.mode) {
       modeEl.textContent = d.mode;
-      if (d.mode === "HIBERNATION") modeEl.style.color = "#ff5d5d";
-      else if (d.mode === "COOL_DOWN") modeEl.style.color = "#ffb03a";
-      else modeEl.style.color = "#33d17a";
+      modeEl.style.color = d.mode === "HIBERNATION" ? "#ff5d5d"
+                         : d.mode === "COOL_DOWN"   ? "#ffb03a" : "#33d17a";
     }
 
-    // Agent replan detection
-    if (d.replan_requested) {
-      console.log("[terrain] Replan requested by AI agent. Reloading path...");
-      setTimeout(loadActivePath, 1500);
-    }
+    // Agent replan
+    if (d.replan_requested) setTimeout(loadActivePath, 1500);
   };
 }
 
@@ -397,6 +561,7 @@ function animate() {
   createRover();
   loadActivePath();
   connectTelemetry();
+  updateRNNMetrics();
   animate();
 })();
 </script>

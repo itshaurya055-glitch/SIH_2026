@@ -3,11 +3,11 @@
 Quick sanity check for a DEM file before you drop it into ./data/dem.tif.
 
 Usage:
-    python3 check_dem.py /path/to/your/downloaded_dem.tif
+    python check_dem.py /path/to/your/downloaded_dem.tif
 
 This confirms rasterio can open it, prints its size/resolution, and runs it
 through the same DEMProcessor the backend uses - so you catch problems
-(corrupt file, unsupported format, all-nodata) before spinning up Docker.
+(corrupt file, unsupported format, all-nodata) before running the backend.
 """
 
 import sys
@@ -59,7 +59,7 @@ def main():
                   "or mountain range). Try a different region, or loosen max_traversable_slope "
                   "in dem_processor.py's _compute_cost_grid().")
     else:
-        print("\nLooks good. Copy this file to ./data/dem.tif and run docker compose up.")
+        print("\nLooks good. Copy this file to ./data/dem.tif and start the backend using uvicorn main:app --reload --port 8000.")
 
 
 if __name__ == "__main__":

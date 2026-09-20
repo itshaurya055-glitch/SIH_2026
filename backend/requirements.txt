@@ -5,6 +5,7 @@ pydantic==2.7.4
 numpy
 rasterio
 scikit-learn
+scipy
 joblib
 openai
-
+python-dotenv
